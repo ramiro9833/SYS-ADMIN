@@ -1,0 +1,20 @@
+# .gitignore - SYS-ADMIN
+# Archivos y carpetas excluidos del control de versiones
+
+# Informes y documentación (entregables privados)
+docs/
+
+# Respaldos automáticos generados por los scripts
+**/*.bak.*
+**/*.bak_*
+
+# Archivos temporales del sistema
+*.swp
+*.tmp
+*~
+.DS_Store
+Thumbs.db
+
+# Archivos de configuración con datos sensibles
+**/*.leases
+**/*.log
