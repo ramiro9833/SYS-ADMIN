@@ -55,3 +55,82 @@ function Configurar-IPEstatica($InterfaceIndex) {
         Write-Host "[ERROR] No se pudo configurar la IP: $_" -ForegroundColor Red
     }
 }
+
+function Configurar-Red-Servidor-Windows {
+    Banner "CONFIGURACION DE RED - WINDOWS SERVER (POWERSHELL)"
+
+    # 1. Obtener adaptadores de red
+    Write-Host "`nDetectando adaptadores de red en el sistema..." -ForegroundColor Gray
+    $adapters = Get-NetAdapter | Where-Object { $_.Status -eq "Up" -or $_.Status -eq "Disconnected" }
+
+    if ($adapters.Count -eq 0) {
+        Write-Host "[ERROR] No se encontraron adaptadores de red en el equipo." -ForegroundColor Red
+        return
+    }
+
+    Write-Host "`nAdaptadores de red disponibles:" -ForegroundColor Cyan
+    $adapters | Format-Table -Property InterfaceIndex, Name, InterfaceDescription, Status, LinkSpeed | Out-String | Write-Host
+
+    # Solicitar seleccion
+    $idx = $null
+    while ($true) {
+        $sel = Read-Host "Seleccione el InterfaceIndex del adaptador para la Red Interna (red_sistemas)"
+        if ($sel -match "^\d+$" -and ($adapters.InterfaceIndex -contains [int]$sel)) {
+            $idx = [int]$sel
+            break
+        } else {
+            Write-Host "Seleccion invalida. Intentelo de nuevo." -ForegroundColor Red
+        }
+    }
+
+    $adapter = Get-NetAdapter -InterfaceIndex $idx
+    Write-Host "`nAdaptador seleccionado: $($adapter.Name) ($($adapter.InterfaceDescription))" -ForegroundColor Green
+
+    # 2. Configurar direccion IP
+    $defaultIP = "192.168.100.20"
+    $defaultPrefix = 24
+
+    Write-Host "`nConfiguracion de IP Estatica (Presione Enter para valores por defecto):" -ForegroundColor Yellow
+    $ip = Leer-IP "Direccion IP" $defaultIP
+
+    # Solicitar mascara CIDR
+    $prefix = $null
+    while ($true) {
+        $prefixInput = Read-Host "Prefijo de red CIDR (ej: 24) [$defaultPrefix]"
+        if ([string]::IsNullOrEmpty($prefixInput)) {
+            $prefix = $defaultPrefix
+            break
+        }
+        if ($prefixInput -match "^\d+$" -and [int]$prefixInput -ge 0 -and [int]$prefixInput -le 32) {
+            $prefix = [int]$prefixInput
+            break
+        }
+        Write-Host "Prefijo CIDR invalido (debe ser entre 0 y 32)." -ForegroundColor Red
+    }
+
+    # 3. Aplicar los cambios
+    Write-Host "`nAplicando configuracion..." -ForegroundColor Gray
+
+    # Remover IPs estaticas existentes en la interfaz seleccionada para evitar conflictos
+    $existingIPs = Get-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike "169.254.*" }
+
+    if ($existingIPs) {
+        Write-Host "Eliminando direcciones IP previas en el adaptador..." -ForegroundColor Gray
+        foreach ($oldIP in $existingIPs) {
+            Remove-NetIPAddress -InterfaceIndex $idx -IPAddress $oldIP.IPAddress -Confirm:$false
+        }
+    }
+
+    # Configurar nueva direccion IP
+    try {
+        New-NetIPAddress -InterfaceIndex $idx -IPAddress $ip -PrefixLength $prefix -ErrorAction Stop | Out-Null
+        Write-Host "[OK] Direccion IP $ip/$prefix configurada con exito." -ForegroundColor Green
+    } catch {
+        Write-Host "[ERROR] No se pudo configurar la direccion IP: $_" -ForegroundColor Red
+        return
+    }
+
+    # Mostrar resumen final
+    Write-Host "`nResumen de configuracion actual de la interfaz:" -ForegroundColor Cyan
+    Get-NetIPConfiguration -InterfaceIndex $idx | Out-String | Write-Host
+}

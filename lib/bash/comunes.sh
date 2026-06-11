@@ -78,3 +78,59 @@ banner() {
   echo -e "${BLUE}${BOLD}  ${titulo}${NC}"
   echo -e "${BLUE}${BOLD}======================================================${NC}"
 }
+
+# ─── Diagnóstico de sistema (Linux) ──────────────────────────────────────────
+mostrar_diagnostico() {
+  banner "DIAGNÓSTICO DE SISTEMA - LINUX"
+
+  # 1. Hostname
+  local host; host=$(hostname)
+  echo -e "\n${BOLD}1. Nombre del Equipo (Hostname):${NC}"
+  echo -e "  - Hostname: ${GREEN}${host}${NC}"
+
+  # 2. Direcciones IP
+  echo -e "\n${BOLD}2. Direcciones IP IPv4 Activas:${NC}"
+  local interfaces=($(ip -o link show | awk -F': ' '{print $2}' | grep -v "lo"))
+
+  if [ ${#interfaces[@]} -eq 0 ]; then
+    echo -e "  ${YELLOW}No se detectaron interfaces de red activas.${NC}"
+  else
+    for iface in "${interfaces[@]}"; do
+      local state; state=$(cat /sys/class/net/"$iface"/operstate 2>/dev/null || echo "unknown")
+      local ip; ip=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+      if [ -n "$ip" ]; then
+        echo -e "  - Interfaz: ${GREEN}$iface${NC} | Estado: ${CYAN}$state${NC} | IP: ${YELLOW}$ip${NC}"
+      else
+        echo -e "  - Interfaz: ${GREEN}$iface${NC} | Estado: ${CYAN}$state${NC} | IP: ${YELLOW}Sin asignar${NC}"
+      fi
+    done
+  fi
+
+  # 3. Espacio en disco
+  echo -e "\n${BOLD}3. Espacio en Disco (Sistema de Archivos Raíz /):${NC}"
+  local disk_info=($(df -h / | awk 'NR==2 {print $2, $3, $4, $5}'))
+  if [ ${#disk_info[@]} -eq 4 ]; then
+    echo -e "  - Tamaño Total:  ${CYAN}${disk_info[0]}${NC}"
+    echo -e "  - Espacio Usado:  ${YELLOW}${disk_info[1]}${NC} (${disk_info[3]})"
+    echo -e "  - Disponible:     ${GREEN}${disk_info[2]}${NC}"
+  else
+    df -h /
+  fi
+
+  # 4. Diagnóstico Adicional
+  echo -e "\n${BOLD}4. Información de Diagnóstico Adicional:${NC}"
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    echo -e "  - Sistema Operativo: ${GREEN}$PRETTY_NAME${NC}"
+  else
+    echo -e "  - Sistema Operativo: Linux genérico"
+  fi
+  echo -e "  - Versión del Kernel: $(uname -r)"
+
+  local ram_total; ram_total=$(free -h | awk '/Mem:/ {print $2}')
+  local ram_used;  ram_used=$(free -h | awk '/Mem:/ {print $3}')
+  local ram_free;  ram_free=$(free -h | awk '/Mem:/ {print $4}')
+  echo -e "  - Memoria RAM:       Total: ${CYAN}$ram_total${NC} | Usada: ${YELLOW}$ram_used${NC} | Libre: ${GREEN}$ram_free${NC}"
+  echo -e "  - Tiempo de Actividad: $(uptime -p)"
+  echo -e "\n${BLUE}${BOLD}======================================================${NC}"
+}
