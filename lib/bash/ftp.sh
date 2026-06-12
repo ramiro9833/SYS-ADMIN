@@ -16,12 +16,26 @@ instalar_ftp_linux() {
   mkdir -p /srv/ftp/grupos/reprobados
   mkdir -p /srv/ftp/grupos/recursadores
   mkdir -p /srv/ftp/usuarios
+  mkdir -p /srv/ftp/anon/general
 
   # Permisos bases
   chmod 777 /srv/ftp/general
   chmod 777 /srv/ftp/grupos/reprobados
   chmod 777 /srv/ftp/grupos/recursadores
   chmod 755 /srv/ftp/usuarios
+  
+  # Aislamiento anónimo (anon root debe ser de solo lectura para vsftpd)
+  chown root:root /srv/ftp/anon
+  chmod 555 /srv/ftp/anon
+  
+  # Realizar montaje de general dentro de anon
+  umount /srv/ftp/anon/general 2>/dev/null || true
+  mount --bind /srv/ftp/general /srv/ftp/anon/general
+
+  # Agregar persistencia del montaje anon al fstab si no existe
+  if ! grep -q "/srv/ftp/anon/general" /etc/fstab; then
+    echo "/srv/ftp/general /srv/ftp/anon/general none bind 0 0" >> /etc/fstab
+  fi
 
   # Copiar configuración de vsftpd original
   if [ ! -f /etc/vsftpd.conf.bak ]; then
@@ -39,7 +53,7 @@ listen_ipv6=YES
 # Permitir acceso anónimo (Solo Lectura)
 anonymous_enable=YES
 no_anon_password=YES
-anon_root=/srv/ftp/general
+anon_root=/srv/ftp/anon
 anon_upload_enable=NO
 anon_mkdir_write_enable=NO
 anon_other_write_enable=NO
