@@ -68,9 +68,9 @@ function Instalar-FTP-Windows {
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value "LocalDirectory"
 
     # Configurar autenticación básica y anónima usando Set-WebConfigurationProperty (más robusto que Set-ItemProperty)
-    Set-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
-    Set-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
-    Set-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/basicAuthentication" -Name "defaultDomain" -Value $env:COMPUTERNAME -PSPath "IIS:\Sites\$siteName"
+    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
+    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
+    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/basicAuthentication" -Name "defaultDomain" -Value $env:COMPUTERNAME -PSPath "IIS:\Sites\$siteName"
 
     # Configurar directiva SSL: Permitir sin requerir (SslAllow)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
@@ -78,7 +78,7 @@ function Instalar-FTP-Windows {
 
     # Configurar autorización FTP global: Permitir lectura/escritura a todos
     # (Los accesos se limitarán a nivel de NTFS)
-    $filter = "/system.ftpServer/security/authorization"
+    $filter = "system.ftpServer/security/authorization"
     # Limpiar reglas existentes
     Clear-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName" -ErrorAction SilentlyContinue
     # Agregar regla para todos los usuarios
