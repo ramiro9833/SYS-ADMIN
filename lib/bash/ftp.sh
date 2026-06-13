@@ -37,6 +37,12 @@ instalar_ftp_linux() {
     echo "/srv/ftp/general /srv/ftp/anon/general none bind 0 0" >> /etc/fstab
   fi
 
+  # Asegurar que nologin esté en /etc/shells para permitir autenticación PAM
+  if ! grep -q "/usr/sbin/nologin" /etc/shells; then
+    echo "/usr/sbin/nologin" >> /etc/shells
+    echo -e "${GREEN}[OK] /usr/sbin/nologin agregado a /etc/shells.${NC}"
+  fi
+
   # Copiar configuración de vsftpd original
   if [ ! -f /etc/vsftpd.conf.bak ]; then
     cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
