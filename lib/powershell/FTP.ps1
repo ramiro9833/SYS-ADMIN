@@ -38,9 +38,20 @@ function Instalar-FTP-Windows {
     icacls "C:\inetpub\ftproot\groups\recursadores" /inheritance:r /grant:r "Administrators:(OI)(CI)F" | Out-Null
     icacls "C:\inetpub\ftproot\users" /inheritance:r /grant:r "Administrators:(OI)(CI)F" | Out-Null
 
+    # Permitir recorrido y lectura (este directorio solamente, sin herencia) a usuarios locales
+    icacls "C:\inetpub\ftproot" /grant "Users:R" | Out-Null
+    icacls "C:\inetpub\ftproot\LocalUser" /grant "Users:R" | Out-Null
+
     # 3. Configurar el sitio FTP en IIS
     Write-Host "[3/3] Configurando sitio FTP en IIS con aislamiento de usuarios..." -ForegroundColor Blue
     Import-Module WebAdministration
+
+    # Desbloquear secciones de IIS FTP a nivel de servidor usando appcmd
+    $appcmd = "$env:windir\system32\inetsrv\appcmd.exe"
+    if (Test-Path $appcmd) {
+        Start-Process $appcmd -ArgumentList "unlock config -section:system.ftpServer/security/authorization" -Wait -NoNewWindow -ErrorAction SilentlyContinue | Out-Null
+        Start-Process $appcmd -ArgumentList "unlock config -section:system.ftpServer/security/authentication" -Wait -NoNewWindow -ErrorAction SilentlyContinue | Out-Null
+    }
 
     # Crear sitio FTP si no existe
     $siteName = "FTP_SysAdmin"
@@ -56,10 +67,10 @@ function Instalar-FTP-Windows {
     # Habilitar aislamiento por directorio local (LocalUser\<usuario>)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value "LocalDirectory"
 
-    # Habilitar autenticación básica y anónima
-    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
-    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
-    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.basicAuthentication.defaultDomain -Value $env:COMPUTERNAME
+    # Configurar autenticación básica y anónima usando Set-WebConfigurationProperty (más robusto que Set-ItemProperty)
+    Set-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
+    Set-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
+    Set-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/basicAuthentication" -Name "defaultDomain" -Value $env:COMPUTERNAME -PSPath "IIS:\Sites\$siteName"
 
     # Configurar directiva SSL: Permitir sin requerir (SslAllow)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
