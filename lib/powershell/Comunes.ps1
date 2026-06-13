@@ -96,7 +96,7 @@ function Mostrar-Diagnostico {
             $usedGB = [Math]::Round($totalGB - $freeGB, 2)
             $pctUsed = if ($totalGB -gt 0) { [Math]::Round(($usedGB / $totalGB) * 100, 2) } else { 0 }
             
-            Write-Host "  - Unidad $letter: ($label) | Total: " -NoNewline -ForegroundColor Green
+            Write-Host "  - Unidad ${letter}: ($label) | Total: " -NoNewline -ForegroundColor Green
             Write-Host "$totalGB GB " -NoNewline -ForegroundColor Cyan
             Write-Host "| Usado: " -NoNewline -ForegroundColor Green
             Write-Host "$usedGB GB ($pctUsed%) " -NoNewline -ForegroundColor Yellow
