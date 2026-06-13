@@ -59,6 +59,7 @@ function Instalar-FTP-Windows {
     # Habilitar autenticación básica y anónima
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
+    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.basicAuthentication.defaultDomain -Value $env:COMPUTERNAME
 
     # Configurar directiva SSL: Permitir sin requerir (SslAllow)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
