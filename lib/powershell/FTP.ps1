@@ -219,8 +219,9 @@ function Monitorear-FTP-Windows {
         Write-Host "  1) Estado del servicio FTP (ftpsvc)"
         Write-Host "  2) Ver estado del sitio FTP_SysAdmin"
         Write-Host "  3) Listar usuarios creados en reprobados/recursadores"
-        Write-Host "  4) Volver al menú principal"
-        $choice = Read-Host "Seleccione una opción (1-4)"
+        Write-Host "  4) Ver logs de conexiones FTP (u_ex*.log)"
+        Write-Host "  5) Volver al menú principal"
+        $choice = Read-Host "Seleccione una opción (1-5)"
 
         if ($choice -eq "1") {
             Get-Service -Name ftpsvc | Format-List Name, Status, StartType
@@ -236,6 +237,22 @@ function Monitorear-FTP-Windows {
             Get-LocalGroupMember -Group "recursadores" -ErrorAction SilentlyContinue | Format-Table Name, PrincipalSource
         }
         elseif ($choice -eq "4") {
+            Write-Host "`nUltimos 15 registros de conexiones FTP en IIS:" -ForegroundColor Cyan
+            # Buscar en todos los subdirectorios de LogFiles que empiecen por FTPSVC
+            $logDirs = Get-ChildItem -Path "C:\inetpub\logs\LogFiles" -Directory -Filter "FTPSVC*" -ErrorAction SilentlyContinue
+            if ($logDirs) {
+                $latestLog = Get-ChildItem -Path $logDirs.FullName -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+                if ($latestLog) {
+                    Write-Host "Mostrando: $($latestLog.FullName)`n" -ForegroundColor Yellow
+                    Get-Content -Path $latestLog.FullName | Select-Object -Last 15
+                } else {
+                    Write-Host "No se encontraron archivos de log (.log) en los directorios de FTPSVC." -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "No se encontro el directorio de logs de FTPSVC en C:\inetpub\logs\LogFiles." -ForegroundColor Yellow
+            }
+        }
+        elseif ($choice -eq "5") {
             $continuar = $false
         }
         else {
