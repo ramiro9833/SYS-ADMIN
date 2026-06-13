@@ -71,7 +71,7 @@ function Instalar-FTP-Windows {
     # Limpiar reglas existentes
     Clear-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName"
     # Agregar regla para todos los usuarios
-    Add-WebConfigurationRule -Filter $filter -PSPath "IIS:\Sites\$siteName" -Value @{accessType="Allow"; users="*"; roles=""; permissions="Read, Write"}
+    Add-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName" -Value @{accessType="Allow"; users="*"; roles=""; permissions="Read, Write"}
 
     # Crear directorio virtual 'general' para el usuario Anonymous (Public)
     $publicGeneralPath = "IIS:\Sites\$siteName\LocalUser\Public\general"
