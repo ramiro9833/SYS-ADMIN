@@ -66,10 +66,9 @@ function Instalar-FTP-Windows {
 
     # Configurar autorización FTP global: Permitir lectura/escritura a todos
     # (Los accesos se limitarán a nivel de NTFS)
-    $authPath = "system.ftpServer/security/authorization"
-    $filter = "/authorization"
+    $filter = "/system.ftpServer/security/authorization"
     # Limpiar reglas existentes
-    Clear-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName"
+    Clear-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName" -ErrorAction SilentlyContinue
     # Agregar regla para todos los usuarios
     Add-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName" -Value @{accessType="Allow"; users="*"; roles=""; permissions="Read, Write"}
 
