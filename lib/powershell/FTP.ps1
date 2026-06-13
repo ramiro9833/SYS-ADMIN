@@ -121,12 +121,13 @@ function Crear-Usuario-FTP-Windows {
         Write-Host "[OK] Grupo local '$group' creado." -ForegroundColor Green
     }
 
-    # Crear usuario
+    # Crear usuario o actualizar su contraseña si ya existe
     $usr = Get-LocalUser -Name $username -ErrorAction SilentlyContinue
+    $secPass = ConvertTo-SecureString $password -AsPlainText -Force
     if ($usr) {
-        Write-Host "[AVISO] El usuario '$username' ya existe. Modificando grupo..." -ForegroundColor Yellow
+        Write-Host "[AVISO] El usuario '$username' ya existe. Actualizando contraseña y habilitando cuenta..." -ForegroundColor Yellow
+        Set-LocalUser -Name $username -Password $secPass -AccountDisabled $false | Out-Null
     } else {
-        $secPass = ConvertTo-SecureString $password -AsPlainText -Force
         New-LocalUser -Name $username -Password $secPass -FullName $username -Description "Usuario FTP" -PasswordNeverExpires | Out-Null
         Write-Host "[OK] Usuario '$username' creado en Windows." -ForegroundColor Green
     }
