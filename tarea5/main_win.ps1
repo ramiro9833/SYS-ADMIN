@@ -5,7 +5,27 @@
 $OutputEncoding = [System.Text.Encoding]::UTF8
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $libDir    = Join-Path $scriptDir "..\lib\powershell"
-if (-not (Test-Path $libDir)) { $libDir = "Z:\lib\powershell" }
+if (-not (Test-Path $libDir)) {
+    # Buscar dinámicamente la carpeta de librerías en todas las unidades del sistema (VirtualBox monta carpetas compartidas en letras aleatorias/secuenciales como Z:, 7:, etc.)
+    $found = $false
+    foreach ($d in (Get-PSDrive -PSProvider FileSystem | Sort-Object Name)) {
+        $candidate = Join-Path $d.Root "lib\powershell"
+        if (Test-Path "$candidate\FTP.ps1") {
+            $libDir = $candidate
+            $found = $true
+            break
+        }
+        $candidateSys = Join-Path $d.Root "SYS-ADMIN\lib\powershell"
+        if (Test-Path "$candidateSys\FTP.ps1") {
+            $libDir = $candidateSys
+            $found = $true
+            break
+        }
+    }
+    if (-not $found) {
+        $libDir = "Z:\lib\powershell" # Fallback por defecto
+    }
+}
 
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 Get-ChildItem "$libDir\*.ps1" | ForEach-Object { Unblock-File $_.FullName -ErrorAction SilentlyContinue }
