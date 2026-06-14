@@ -82,9 +82,9 @@ function Instalar-FTP-Windows {
     # Habilitar aislamiento por directorio local (LocalUser\<usuario>)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value "LocalDirectory"
 
-    # Configurar autenticación básica y anónima usando Set-WebConfigurationProperty con el PSPath del sitio
-    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
-    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
+    # Configurar autenticación básica y anónima usando Set-ItemProperty (sencillo y sin warnings)
+    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
+    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
 
     # Configurar directiva SSL: Permitir sin requerir (SslAllow)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
