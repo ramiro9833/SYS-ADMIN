@@ -164,44 +164,57 @@ function Crear-Usuario-FTP-Windows {
     # Permisos NTFS restrictivos para carpeta personal
     icacls $userPersonalPath /inheritance:r /grant:r "${username}:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" | Out-Null
 
-    # Crear la carpeta física del home de aislamiento (chroot) bajo el subdirectorio del nombre del equipo
+    # Crear las carpetas físicas de aislamiento (tanto con prefijo de equipo como sin él como fallback)
     $computerDirPath = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME"
     if (-not (Test-Path $computerDirPath)) {
         New-Item -ItemType Directory -Path $computerDirPath -Force | Out-Null
         icacls $computerDirPath /grant "Users:R" | Out-Null
     }
 
-    $userRootPath = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME\$username"
-    if (-not (Test-Path $userRootPath)) {
-        New-Item -ItemType Directory -Path $userRootPath -Force | Out-Null
+    # 1. Ruta con prefijo de equipo
+    $userRootPathComputer = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME\$username"
+    if (-not (Test-Path $userRootPathComputer)) {
+        New-Item -ItemType Directory -Path $userRootPathComputer -Force | Out-Null
     }
-    # Solo lectura NTFS para la raíz del home de aislamiento (los directorios virtuales tendrán escritura en sus respectivos destinos)
-    icacls $userRootPath /grant:r "${username}:(OI)(CI)R" /grant:r "Administrators:(OI)(CI)F" /inheritance:e | Out-Null
+    icacls $userRootPathComputer /grant:r "${username}:(OI)(CI)R" /grant:r "Administrators:(OI)(CI)F" /inheritance:e | Out-Null
 
-    # Configurar directorios virtuales en IIS
+    # 2. Ruta sin prefijo de equipo (fallback)
+    $userRootPathPlain = "C:\inetpub\ftproot\LocalUser\$username"
+    if (-not (Test-Path $userRootPathPlain)) {
+        New-Item -ItemType Directory -Path $userRootPathPlain -Force | Out-Null
+    }
+    icacls $userRootPathPlain /grant:r "${username}:(OI)(CI)R" /grant:r "Administrators:(OI)(CI)F" /inheritance:e | Out-Null
+
+    # Configurar directorios virtuales en IIS para ambas estructuras (con y sin prefijo de equipo)
     Import-Module WebAdministration
     $siteName = "FTP_SysAdmin"
 
-    # 1. Virtual 'general'
-    $vdirGenPath = "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username\general"
-    if (-not (Test-Path $vdirGenPath)) {
-        New-Item -Path $vdirGenPath -PhysicalPath "C:\inetpub\ftproot\general" -Type VirtualDirectory | Out-Null
+    $pathsToConfig = @(
+        "LocalUser\$env:COMPUTERNAME\$username",
+        "LocalUser\$username"
+    )
+
+    foreach ($p in $pathsToConfig) {
+        # 1. Virtual 'general'
+        $vdirGenPath = "IIS:\Sites\$siteName\$p\general"
+        if (-not (Test-Path $vdirGenPath)) {
+            New-Item -Path $vdirGenPath -PhysicalPath "C:\inetpub\ftproot\general" -Type VirtualDirectory | Out-Null
+        }
+
+        # 2. Virtual del Grupo
+        Remove-Item -Path "IIS:\Sites\$siteName\$p\reprobados" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "IIS:\Sites\$siteName\$p\recursadores" -Recurse -Force -ErrorAction SilentlyContinue
+        
+        New-Item -Path "IIS:\Sites\$siteName\$p\$group" -PhysicalPath "C:\inetpub\ftproot\groups\$group" -Type VirtualDirectory | Out-Null
+
+        # 3. Virtual de carpeta personal (con el nombre del usuario)
+        $vdirPersPath = "IIS:\Sites\$siteName\$p\$username"
+        if (-not (Test-Path $vdirPersPath)) {
+            New-Item -Path $vdirPersPath -PhysicalPath "C:\inetpub\ftproot\users\$username" -Type VirtualDirectory | Out-Null
+        }
     }
 
-    # 2. Virtual del Grupo
-    # Limpiar directorios virtuales viejos de grupos si los hay
-    Remove-Item -Path "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username\reprobados" -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username\recursadores" -Recurse -Force -ErrorAction SilentlyContinue
-    
-    New-Item -Path "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username\$group" -PhysicalPath "C:\inetpub\ftproot\groups\$group" -Type VirtualDirectory | Out-Null
-
-    # 3. Virtual de carpeta personal (con el nombre del usuario)
-    $vdirPersPath = "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username\$username"
-    if (-not (Test-Path $vdirPersPath)) {
-        New-Item -Path $vdirPersPath -PhysicalPath "C:\inetpub\ftproot\users\$username" -Type VirtualDirectory | Out-Null
-    }
-
-    Write-Host "[OK] Aislamiento de directorios virtuales creado para '$username'." -ForegroundColor Green
+    Write-Host "[OK] Aislamiento de directorios virtuales creado para '$username' (en ambas estructuras de carpetas)." -ForegroundColor Green
 }
 
 function Cambiar-Grupo-Usuario-Windows {
@@ -233,17 +246,24 @@ function Cambiar-Grupo-Usuario-Windows {
     Add-LocalGroupMember -Group $new_group -Member $username | Out-Null
     Write-Host "[OK] Membresía de Windows actualizada para '$username' -> '$new_group'." -ForegroundColor Green
 
-    # Actualizar directorios virtuales en IIS
+    # Actualizar directorios virtuales en IIS para ambas estructuras (con y sin prefijo de equipo)
     Import-Module WebAdministration
     $siteName = "FTP_SysAdmin"
     
-    # Remover directorios virtuales de grupo viejos
-    Remove-Item -Path "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username\reprobados" -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username\recursadores" -Recurse -Force -ErrorAction SilentlyContinue
+    $pathsToConfig = @(
+        "LocalUser\$env:COMPUTERNAME\$username",
+        "LocalUser\$username"
+    )
 
-    # Crear el nuevo directorio virtual
-    New-Item -Path "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username\$new_group" -PhysicalPath "C:\inetpub\ftproot\groups\$new_group" -Type VirtualDirectory | Out-Null
-    Write-Host "[OK] Directorio virtual de IIS cambiado a '$new_group'." -ForegroundColor Green
+    foreach ($p in $pathsToConfig) {
+        # Remover directorios virtuales de grupo viejos
+        Remove-Item -Path "IIS:\Sites\$siteName\$p\reprobados" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "IIS:\Sites\$siteName\$p\recursadores" -Recurse -Force -ErrorAction SilentlyContinue
+
+        # Crear el nuevo directorio virtual
+        New-Item -Path "IIS:\Sites\$siteName\$p\$new_group" -PhysicalPath "C:\inetpub\ftproot\groups\$new_group" -Type VirtualDirectory | Out-Null
+    }
+    Write-Host "[OK] Directorio virtual de IIS cambiado a '$new_group' en ambas estructuras." -ForegroundColor Green
 }
 
 function Monitorear-FTP-Windows {
