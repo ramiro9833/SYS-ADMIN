@@ -57,8 +57,23 @@ function Instalar-FTP-Windows {
     $siteName = "FTP_SysAdmin"
     $site = Get-WebSite -Name $siteName -ErrorAction SilentlyContinue
     if ($site) {
-        Write-Host "[INFO] Sitio FTP '$siteName' ya existe. Reconfigurando..." -ForegroundColor Yellow
-        Remove-WebSite -Name $siteName -Confirm:$false
+        Write-Host "[INFO] El sitio FTP '$siteName' ya existe." -ForegroundColor Yellow
+        $overwrite = Read-Host "¿Desea reinstalar el servidor de cero, eliminando todos los usuarios alumno* y directorios de aislamiento? (S/N)"
+        if ($overwrite -eq "S" -or $overwrite -eq "s") {
+            Write-Host "[INFO] Eliminando sitio FTP y limpiando datos..." -ForegroundColor Yellow
+            Remove-WebSite -Name $siteName -Confirm:$false
+            
+            # Limpiar directorios físicos de aislamiento
+            if (Test-Path "C:\inetpub\ftproot\LocalUser") {
+                Remove-Item -Path "C:\inetpub\ftproot\LocalUser" -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            # Limpiar usuarios alumno* locales
+            Get-LocalUser | Where-Object {$_.Name -like "alumno*"} | Remove-LocalUser -ErrorAction SilentlyContinue
+            Write-Host "[OK] Limpieza de usuarios y directorios completada." -ForegroundColor Green
+        } else {
+            Write-Host "[INFO] Reconfigurando sitio existente sin borrar usuarios ni directorios..." -ForegroundColor Yellow
+            Remove-WebSite -Name $siteName -Confirm:$false
+        }
     }
     
     # Crear el sitio usando el proveedor IIS:\
@@ -67,10 +82,9 @@ function Instalar-FTP-Windows {
     # Habilitar aislamiento por directorio local (LocalUser\<usuario>)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value "LocalDirectory"
 
-    # Configurar autenticación básica y anónima usando la ruta completa en system.applicationHost/sites
-    Set-WebConfigurationProperty -PSPath "MACHINE/WEBROOT/APPHOST" -Filter "system.applicationHost/sites/site[@name='$siteName']/ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $true
-    Set-WebConfigurationProperty -PSPath "MACHINE/WEBROOT/APPHOST" -Filter "system.applicationHost/sites/site[@name='$siteName']/ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value $true
-    Set-WebConfigurationProperty -PSPath "MACHINE/WEBROOT/APPHOST" -Filter "system.applicationHost/sites/site[@name='$siteName']/ftpServer/security/authentication/basicAuthentication" -Name "defaultDomain" -Value $env:COMPUTERNAME
+    # Configurar autenticación básica y anónima usando Set-WebConfigurationProperty con el PSPath del sitio
+    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
+    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
 
     # Configurar directiva SSL: Permitir sin requerir (SslAllow)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
@@ -78,11 +92,11 @@ function Instalar-FTP-Windows {
 
     # Configurar autorización FTP global: Permitir lectura/escritura a todos
     # (Los accesos se limitarán a nivel de NTFS)
-    $authFilter = "system.applicationHost/sites/site[@name='$siteName']/ftpServer/security/authorization"
+    $filter = "system.ftpServer/security/authorization"
     # Limpiar reglas existentes
-    Clear-WebConfiguration -PSPath "MACHINE/WEBROOT/APPHOST" -Filter $authFilter -ErrorAction SilentlyContinue
+    Clear-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName" -ErrorAction SilentlyContinue
     # Agregar regla para todos los usuarios
-    Add-WebConfiguration -PSPath "MACHINE/WEBROOT/APPHOST" -Filter $authFilter -Value @{accessType="Allow"; users="*"; roles=""; permissions="Read, Write"}
+    Add-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName" -Value @{accessType="Allow"; users="*"; roles=""; permissions="Read, Write"}
 
     # Crear directorio virtual 'general' para el usuario Anonymous (Public)
     $publicGeneralPath = "IIS:\Sites\$siteName\LocalUser\Public\general"
@@ -126,7 +140,8 @@ function Crear-Usuario-FTP-Windows {
     $secPass = ConvertTo-SecureString $password -AsPlainText -Force
     if ($usr) {
         Write-Host "[AVISO] El usuario '$username' ya existe. Actualizando contraseña y habilitando cuenta..." -ForegroundColor Yellow
-        Set-LocalUser -Name $username -Password $secPass -AccountDisabled $false | Out-Null
+        Set-LocalUser -Name $username -Password $secPass | Out-Null
+        Enable-LocalUser -Name $username | Out-Null
     } else {
         New-LocalUser -Name $username -Password $secPass -FullName $username -Description "Usuario FTP" -PasswordNeverExpires | Out-Null
         Write-Host "[OK] Usuario '$username' creado en Windows." -ForegroundColor Green
