@@ -172,46 +172,55 @@ function Crear-Usuario-FTP-Windows {
     if (-not (Test-Path $userPersonalPath)) {
         New-Item -ItemType Directory -Path $userPersonalPath -Force | Out-Null
     }
-    # Permisos NTFS restrictivos para carpeta personal
-    icacls $userPersonalPath /inheritance:r /grant:r "${username}:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" | Out-Null
 
-    # Crear carpeta fisica de home de aislamiento: LocalUser\username  (SIN prefijo de equipo)
-    $userRootPath = "C:\inetpub\ftproot\LocalUser\$username"
-    if (-not (Test-Path $userRootPath)) {
-        New-Item -ItemType Directory -Path $userRootPath -Force | Out-Null
+    # Crear AMBAS estructuras de home de aislamiento:
+    # Modo IsolateAllDirectories usa:     LocalUser\username
+    # Modo LocalDirectory/ActiveDirectory: LocalUser\COMPUTERNAME\username
+    # Creamos ambas para garantizar que IIS encuentre el directorio sea cual sea el modo real.
+
+    $userRootFlat     = "C:\inetpub\ftproot\LocalUser\$username"
+    $computerDir      = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME"
+    $userRootPrefixed = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME\$username"
+
+    foreach ($dir in @($computerDir, $userRootFlat, $userRootPrefixed)) {
+        if (-not (Test-Path $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        # Permisos abiertos para descartar NTFS como causa del fallo
+        icacls $dir /reset | Out-Null
+        icacls $dir /grant "Everyone:(OI)(CI)F" | Out-Null
+        Write-Host "[OK] Directorio creado con permisos abiertos: $dir" -ForegroundColor Green
     }
-    # NTFS: usuario tiene full control sobre su propio home, FTPSVC puede leer/ejecutar
-    icacls $userRootPath /inheritance:r /grant:r "${username}:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" /grant:r "NT SERVICE\FTPSVC:(OI)(CI)RX" | Out-Null
 
-    # Configurar directorios virtuales en IIS bajo LocalUser\username
+    # Configurar directorios virtuales en IIS para AMBAS estructuras
     Import-Module WebAdministration -ErrorAction SilentlyContinue
     if (-not (Get-Module WebAdministration)) {
         Write-Host "[ERROR] No se pudo cargar el modulo WebAdministration." -ForegroundColor Red
         return
     }
     $siteName = "FTP_SysAdmin"
-    $iisBase = "IIS:\Sites\$siteName\LocalUser\$username"
 
-    # CRITICO: Crear el directorio virtual RAIZ del usuario explicitamente
-    # IsolateAllDirectories requiere que LocalUser\username sea un VirtualDirectory
-    # apuntando a la carpeta fisica del usuario.
-    if (Test-Path $iisBase) {
-        Remove-Item -Path $iisBase -Recurse -Force -ErrorAction SilentlyContinue
+    # Crear virtual roots para ambas rutas
+    $iisPaths = @(
+        @{ IIS = "IIS:\Sites\$siteName\LocalUser\$username";              Phys = $userRootFlat },
+        @{ IIS = "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username"; Phys = $userRootPrefixed }
+    )
+
+    foreach ($entry in $iisPaths) {
+        $iisBase = $entry.IIS
+        $phys    = $entry.Phys
+        # Recrear desde cero
+        if (Test-Path $iisBase) {
+            Remove-Item -Path $iisBase -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        New-Item -Path $iisBase -PhysicalPath $phys -Type VirtualDirectory -ErrorAction SilentlyContinue | Out-Null
+        New-Item -Path "$iisBase\general"   -PhysicalPath "C:\inetpub\ftproot\general"           -Type VirtualDirectory -ErrorAction SilentlyContinue | Out-Null
+        New-Item -Path "$iisBase\$group"    -PhysicalPath "C:\inetpub\ftproot\groups\$group"     -Type VirtualDirectory -ErrorAction SilentlyContinue | Out-Null
+        New-Item -Path "$iisBase\$username" -PhysicalPath "C:\inetpub\ftproot\users\$username"   -Type VirtualDirectory -ErrorAction SilentlyContinue | Out-Null
+        Write-Host "[OK] Virtual root IIS: $iisBase -> $phys" -ForegroundColor Green
     }
-    New-Item -Path $iisBase -PhysicalPath $userRootPath -Type VirtualDirectory | Out-Null
-    Write-Host "[OK] Directorio virtual raiz creado: $iisBase -> $userRootPath" -ForegroundColor Green
 
-    # Virtual 'general' (carpeta compartida de lectura)
-    New-Item -Path "$iisBase\general" -PhysicalPath "C:\inetpub\ftproot\general" -Type VirtualDirectory | Out-Null
-
-    # Virtual del grupo
-    New-Item -Path "$iisBase\$group" -PhysicalPath "C:\inetpub\ftproot\groups\$group" -Type VirtualDirectory | Out-Null
-
-    # Virtual de carpeta personal
-    New-Item -Path "$iisBase\$username" -PhysicalPath "C:\inetpub\ftproot\users\$username" -Type VirtualDirectory | Out-Null
-
-    Write-Host "[OK] Home de aislamiento: $userRootPath" -ForegroundColor Green
-    Write-Host "[OK] Directorios virtuales configurados correctamente en IIS." -ForegroundColor Green
+    Write-Host "[OK] Estructura de aislamiento creada para '$username'." -ForegroundColor Green
 }
 
 function Cambiar-Grupo-Usuario-Windows {
