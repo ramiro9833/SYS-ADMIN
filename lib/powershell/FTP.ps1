@@ -135,16 +135,25 @@ function Crear-Usuario-FTP-Windows {
         Write-Host "[OK] Grupo local '$group' creado." -ForegroundColor Green
     }
 
-    # Crear usuario o actualizar su contraseña si ya existe
+    # Crear usuario usando net user (más robusto que New-LocalUser en entornos de servidor)
     $usr = Get-LocalUser -Name $username -ErrorAction SilentlyContinue
-    $secPass = ConvertTo-SecureString $password -AsPlainText -Force
     if ($usr) {
-        Write-Host "[AVISO] El usuario '$username' ya existe. Actualizando contraseña y habilitando cuenta..." -ForegroundColor Yellow
-        Set-LocalUser -Name $username -Password $secPass | Out-Null
-        Enable-LocalUser -Name $username | Out-Null
+        Write-Host "[AVISO] El usuario '$username' ya existe. Restableciendo contraseña..." -ForegroundColor Yellow
+        # net user es el método más confiable para resetear contraseña en Windows Server
+        net user $username $password | Out-Null
+        net user $username /active:yes | Out-Null
     } else {
-        New-LocalUser -Name $username -Password $secPass -FullName $username -Description "Usuario FTP" -PasswordNeverExpires | Out-Null
+        net user $username $password /add /passwordreq:yes /expires:never | Out-Null
+        net user $username /active:yes | Out-Null
         Write-Host "[OK] Usuario '$username' creado en Windows." -ForegroundColor Green
+    }
+    # Verificar que la cuenta quedó activa y con contraseña correcta
+    $checkUser = net user $username 2>&1
+    if ($checkUser -match "Account active.*Yes") {
+        Write-Host "[OK] Cuenta '$username' activa y contraseña establecida." -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] Verificar manualmente el estado de la cuenta '$username'." -ForegroundColor Yellow
+        $checkUser | Select-String -Pattern "Account active|Password"
     }
 
     # Asignar grupo
@@ -312,5 +321,69 @@ function Monitorear-FTP-Windows {
         else {
             Write-Host "Opción inválida." -ForegroundColor Red
         }
+    }
+}
+
+function Diagnosticar-Usuario-FTP {
+    param([string]$username)
+
+    if ([string]::IsNullOrEmpty($username)) {
+        $username = Read-Host "Nombre del usuario a diagnosticar"
+    }
+
+    Write-Host "`n====== DIAGNOSTICO CUENTA WINDOWS: $username ======" -ForegroundColor Cyan
+
+    # 1. Estado de la cuenta Windows
+    $userInfo = net user $username 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] El usuario '$username' NO existe en Windows." -ForegroundColor Red
+        return
+    }
+    $userInfo | Select-String -Pattern "Account active|Password expires|Password last set|Account expires|User may change|Login hours" | ForEach-Object {
+        Write-Host "  $_"
+    }
+
+    # 2. Verificar directorios fisicos
+    Write-Host "`n-- Directorios fisicos de aislamiento:" -ForegroundColor Cyan
+    $paths = @(
+        "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME\$username",
+        "C:\inetpub\ftproot\LocalUser\$username"
+    )
+    foreach ($p in $paths) {
+        if (Test-Path $p) {
+            Write-Host "  [OK] $p" -ForegroundColor Green
+            icacls $p 2>&1 | Select-Object -First 5 | ForEach-Object { Write-Host "       $_" }
+        } else {
+            Write-Host "  [MISS] $p" -ForegroundColor Red
+        }
+    }
+
+    # 3. Verificar directorios virtuales IIS
+    Write-Host "`n-- Directorios virtuales IIS:" -ForegroundColor Cyan
+    Import-Module WebAdministration
+    $siteName = "FTP_SysAdmin"
+    $iispaths = @(
+        "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username",
+        "IIS:\Sites\$siteName\LocalUser\$username"
+    )
+    foreach ($ip in $iispaths) {
+        if (Test-Path $ip) {
+            Write-Host "  [OK] $ip" -ForegroundColor Green
+        } else {
+            Write-Host "  [MISS] $ip" -ForegroundColor Red
+        }
+    }
+
+    # 4. Probar login con Net Logon
+    Write-Host "`n-- Test de autenticacion local:" -ForegroundColor Cyan
+    Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+    $ctx = [System.DirectoryServices.AccountManagement.PrincipalContext]::new([System.DirectoryServices.AccountManagement.ContextType]::Machine)
+    $pass = Read-Host "Ingresa la contrasena del usuario para probar autenticacion"
+    $loginOk = $ctx.ValidateCredentials($username, $pass)
+    if ($loginOk) {
+        Write-Host "  [OK] Credenciales validas. Windows acepta el login." -ForegroundColor Green
+    } else {
+        Write-Host "  [ERROR] Credenciales INVALIDAS. Windows rechaza el login." -ForegroundColor Red
+        Write-Host "  -> Esto causa el codigo 1326 en el log de IIS FTP." -ForegroundColor Yellow
     }
 }

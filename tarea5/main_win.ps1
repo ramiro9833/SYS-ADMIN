@@ -41,8 +41,9 @@ while ($true) {
     Write-Host "  2) Alta Masiva de Usuarios FTP"
     Write-Host "  3) Cambiar Grupo de un Usuario"
     Write-Host "  4) Modulo de Monitoreo"
-    Write-Host "  5) Salir"
-    $opt = Read-Host "Seleccione una opcion (1-5)"
+    Write-Host "  5) Diagnosticar Usuario FTP" -ForegroundColor Cyan
+    Write-Host "  6) Salir"
+    $opt = Read-Host "Seleccione una opcion (1-6)"
 
     if ($opt -eq "1") {
         Instalar-FTP-Windows
@@ -79,6 +80,9 @@ while ($true) {
         Monitorear-FTP-Windows
     }
     elseif ($opt -eq "5") {
+        Diagnosticar-Usuario-FTP
+    }
+    elseif ($opt -eq "6") {
         Write-Host "`nHasta luego!" -ForegroundColor Green
         Exit
     }
