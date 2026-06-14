@@ -167,32 +167,8 @@ function Crear-Usuario-FTP-Windows {
     # Dar permisos NTFS a las carpetas del grupo
     icacls "C:\inetpub\ftproot\groups\$group" /grant:r "${group}:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" /inheritance:r | Out-Null
 
-    # Crear carpeta física personal del usuario
-    $userPersonalPath = "C:\inetpub\ftproot\users\$username"
-    if (-not (Test-Path $userPersonalPath)) {
-        New-Item -ItemType Directory -Path $userPersonalPath -Force | Out-Null
-    }
-
-    # Crear AMBAS estructuras de home de aislamiento:
-    # Modo IsolateAllDirectories usa:     LocalUser\username
-    # Modo LocalDirectory/ActiveDirectory: LocalUser\COMPUTERNAME\username
-    # Creamos ambas para garantizar que IIS encuentre el directorio sea cual sea el modo real.
-
-    $userRootFlat     = "C:\inetpub\ftproot\LocalUser\$username"
-    $computerDir      = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME"
-    $userRootPrefixed = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME\$username"
-
-    foreach ($dir in @($computerDir, $userRootFlat, $userRootPrefixed)) {
-        if (-not (Test-Path $dir)) {
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        }
-        # Permisos abiertos para descartar NTFS como causa del fallo
-        icacls $dir /reset | Out-Null
-        icacls $dir /grant "Everyone:(OI)(CI)F" | Out-Null
-        Write-Host "[OK] Directorio creado con permisos abiertos: $dir" -ForegroundColor Green
-    }
-
-    # Configurar directorios virtuales en IIS para AMBAS estructuras
+    # PASO 1: Configurar directorios virtuales en IIS PRIMERO
+    # (Remove-Item en rutas IIS:\ puede borrar archivos fisicos si se hace despues)
     Import-Module WebAdministration -ErrorAction SilentlyContinue
     if (-not (Get-Module WebAdministration)) {
         Write-Host "[ERROR] No se pudo cargar el modulo WebAdministration." -ForegroundColor Red
@@ -200,27 +176,56 @@ function Crear-Usuario-FTP-Windows {
     }
     $siteName = "FTP_SysAdmin"
 
-    # Crear virtual roots para ambas rutas
+    $userRootFlat     = "C:\inetpub\ftproot\LocalUser\$username"
+    $userRootPrefixed = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME\$username"
+
     $iisPaths = @(
-        @{ IIS = "IIS:\Sites\$siteName\LocalUser\$username";              Phys = $userRootFlat },
-        @{ IIS = "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username"; Phys = $userRootPrefixed }
+        @{ IIS = "IIS:\Sites\$siteName\LocalUser\$username";                    Phys = $userRootFlat },
+        @{ IIS = "IIS:\Sites\$siteName\LocalUser\$env:COMPUTERNAME\$username";  Phys = $userRootPrefixed }
     )
 
     foreach ($entry in $iisPaths) {
         $iisBase = $entry.IIS
         $phys    = $entry.Phys
-        # Recrear desde cero
-        if (Test-Path $iisBase) {
-            Remove-Item -Path $iisBase -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        New-Item -Path $iisBase -PhysicalPath $phys -Type VirtualDirectory -ErrorAction SilentlyContinue | Out-Null
-        New-Item -Path "$iisBase\general"   -PhysicalPath "C:\inetpub\ftproot\general"           -Type VirtualDirectory -ErrorAction SilentlyContinue | Out-Null
-        New-Item -Path "$iisBase\$group"    -PhysicalPath "C:\inetpub\ftproot\groups\$group"     -Type VirtualDirectory -ErrorAction SilentlyContinue | Out-Null
-        New-Item -Path "$iisBase\$username" -PhysicalPath "C:\inetpub\ftproot\users\$username"   -Type VirtualDirectory -ErrorAction SilentlyContinue | Out-Null
+        # Usar appcmd para limpiar virtual dirs sin tocar archivos fisicos
+        $vPath = $iisBase -replace "IIS:\\Sites\\$siteName\\", "/"
+        $appcmd = "$env:windir\system32\inetsrv\appcmd.exe"
+        & $appcmd delete vdir /vdir.name:"$siteName$vPath/" 2>$null | Out-Null
+        # Crear virtual directory apuntando a la carpeta fisica
+        New-Item -Path $iisBase -PhysicalPath $phys -Type VirtualDirectory -Force -ErrorAction SilentlyContinue | Out-Null
+        New-Item -Path "$iisBase\general"   -PhysicalPath "C:\inetpub\ftproot\general"         -Type VirtualDirectory -Force -ErrorAction SilentlyContinue | Out-Null
+        New-Item -Path "$iisBase\$group"    -PhysicalPath "C:\inetpub\ftproot\groups\$group"   -Type VirtualDirectory -Force -ErrorAction SilentlyContinue | Out-Null
+        New-Item -Path "$iisBase\$username" -PhysicalPath "C:\inetpub\ftproot\users\$username" -Type VirtualDirectory -Force -ErrorAction SilentlyContinue | Out-Null
         Write-Host "[OK] Virtual root IIS: $iisBase -> $phys" -ForegroundColor Green
     }
 
-    Write-Host "[OK] Estructura de aislamiento creada para '$username'." -ForegroundColor Green
+    # PASO 2: Crear directorios fisicos DESPUES de la configuracion IIS
+    # Usando cmd /c mkdir que es mas confiable que New-Item en este contexto
+    $dirsToCreate = @(
+        "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME",
+        $userRootFlat,
+        $userRootPrefixed
+    )
+    foreach ($dir in $dirsToCreate) {
+        cmd /c "if not exist `"$dir`" mkdir `"$dir`"" 2>$null | Out-Null
+        icacls $dir /grant "Everyone:(OI)(CI)F" 2>$null | Out-Null
+    }
+
+    # PASO 3: Verificar que los directorios existen realmente
+    $allOk = $true
+    foreach ($dir in @($userRootFlat, $userRootPrefixed)) {
+        if (Test-Path $dir) {
+            Write-Host "[OK] Directorio verificado: $dir" -ForegroundColor Green
+        } else {
+            Write-Host "[ERROR] Directorio NO creado: $dir" -ForegroundColor Red
+            $allOk = $false
+        }
+    }
+    if ($allOk) {
+        Write-Host "[OK] Estructura de aislamiento lista para '$username'." -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] Algunos directorios no se crearon correctamente." -ForegroundColor Yellow
+    }
 }
 
 function Cambiar-Grupo-Usuario-Windows {
