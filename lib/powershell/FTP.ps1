@@ -184,27 +184,34 @@ function Crear-Usuario-FTP-Windows {
     icacls $userRootPath /inheritance:r /grant:r "${username}:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" /grant:r "NT SERVICE\FTPSVC:(OI)(CI)RX" | Out-Null
 
     # Configurar directorios virtuales en IIS bajo LocalUser\username
-    Import-Module WebAdministration
+    Import-Module WebAdministration -ErrorAction SilentlyContinue
+    if (-not (Get-Module WebAdministration)) {
+        Write-Host "[ERROR] No se pudo cargar el modulo WebAdministration." -ForegroundColor Red
+        return
+    }
     $siteName = "FTP_SysAdmin"
     $iisBase = "IIS:\Sites\$siteName\LocalUser\$username"
 
-    # Virtual 'general'
-    if (-not (Test-Path "$iisBase\general")) {
-        New-Item -Path "$iisBase\general" -PhysicalPath "C:\inetpub\ftproot\general" -Type VirtualDirectory | Out-Null
+    # CRITICO: Crear el directorio virtual RAIZ del usuario explicitamente
+    # IsolateAllDirectories requiere que LocalUser\username sea un VirtualDirectory
+    # apuntando a la carpeta fisica del usuario.
+    if (Test-Path $iisBase) {
+        Remove-Item -Path $iisBase -Recurse -Force -ErrorAction SilentlyContinue
     }
+    New-Item -Path $iisBase -PhysicalPath $userRootPath -Type VirtualDirectory | Out-Null
+    Write-Host "[OK] Directorio virtual raiz creado: $iisBase -> $userRootPath" -ForegroundColor Green
 
-    # Virtual del grupo (limpiar viejos y crear nuevo)
-    Remove-Item -Path "$iisBase\reprobados" -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "$iisBase\recursadores" -Recurse -Force -ErrorAction SilentlyContinue
+    # Virtual 'general' (carpeta compartida de lectura)
+    New-Item -Path "$iisBase\general" -PhysicalPath "C:\inetpub\ftproot\general" -Type VirtualDirectory | Out-Null
+
+    # Virtual del grupo
     New-Item -Path "$iisBase\$group" -PhysicalPath "C:\inetpub\ftproot\groups\$group" -Type VirtualDirectory | Out-Null
 
     # Virtual de carpeta personal
-    if (-not (Test-Path "$iisBase\$username")) {
-        New-Item -Path "$iisBase\$username" -PhysicalPath "C:\inetpub\ftproot\users\$username" -Type VirtualDirectory | Out-Null
-    }
+    New-Item -Path "$iisBase\$username" -PhysicalPath "C:\inetpub\ftproot\users\$username" -Type VirtualDirectory | Out-Null
 
     Write-Host "[OK] Home de aislamiento: $userRootPath" -ForegroundColor Green
-    Write-Host "[OK] Directorios virtuales configurados en IIS bajo LocalUser\$username" -ForegroundColor Green
+    Write-Host "[OK] Directorios virtuales configurados correctamente en IIS." -ForegroundColor Green
 }
 
 function Cambiar-Grupo-Usuario-Windows {

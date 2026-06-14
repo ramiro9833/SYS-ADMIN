@@ -4,3 +4,14 @@ icacls "C:\inetpub\ftproot\LocalUser\SRV-WIN-SISTEMA" /grant "NT SERVICE\FTPSVC:
 icacls "C:\inetpub\ftproot\LocalUser\SRV-WIN-SISTEMA\alumno1" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX"
 icacls "C:\inetpub\ftproot\LocalUser\alumno1" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX"
 Restart-Service ftpsvc -Force
+
+
+
+# 1. Ver el modo de aislamiento ACTUAL
+(Get-ItemProperty "IIS:\Sites\FTP_SysAdmin").ftpServer.userIsolation
+
+# 2. Ver qué directorios físicos existen
+Get-ChildItem "C:\inetpub\ftproot\LocalUser\" -Recurse -Depth 2
+
+# 3. Ver las entradas del log de los intentos MÁS RECIENTES
+Get-Content "C:\inetpub\logs\LogFiles\FTPSVC2\u_ex260614.log" | Select-Object -Last 20
