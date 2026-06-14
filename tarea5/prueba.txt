@@ -21,3 +21,13 @@ Get-Content "C:\inetpub\logs\LogFiles\FTPSVC2\u_ex260614.log" | Select-Object -L
 icacls "C:\inetpub\ftproot\LocalUser\alumno1" /reset
 icacls "C:\inetpub\ftproot\LocalUser\alumno1" /grant "Everyone:(OI)(CI)F"
 Restart-Service ftpsvc -Force
+
+
+# Ver el modo actual de aislamiento (global del servidor)
+& "C:\Windows\System32\inetsrv\appcmd.exe" list config -section:system.ftpServer/userIsolation
+
+# Fijar el modo correcto a nivel GLOBAL
+& "C:\Windows\System32\inetsrv\appcmd.exe" set config -section:system.ftpServer/userIsolation /mode:"IsolateAllDirectories" /commit:apphost
+
+# Reiniciar el servicio FTP
+Restart-Service ftpsvc -Force
