@@ -79,9 +79,10 @@ function Instalar-FTP-Windows {
     # Crear el sitio usando el proveedor IIS:\
     New-Item -Path "IIS:\Sites\$siteName" -bindings @{protocol="ftp";bindingInformation="*:21:"} -physicalPath "C:\inetpub\ftproot" | Out-Null
 
-    # Modo de aislamiento 3 = IsolateAllDirectories para usuarios locales sin dominio.
+    # Modo de aislamiento IsolateAllDirectories para usuarios locales sin dominio.
     # Con este modo IIS busca el home en: %FtpRoot%\LocalUser\%Username%  (SIN prefijo del equipo)
-    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value 3
+    # IMPORTANTE: Se usa el string "IsolateAllDirectories" (entero=1) para evitar ambigüedades
+    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value "IsolateAllDirectories"
 
     # Configurar autenticación básica y anónima usando Set-ItemProperty (sencillo y sin warnings)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
