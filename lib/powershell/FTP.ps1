@@ -38,25 +38,9 @@ function Instalar-FTP-Windows {
     icacls "C:\inetpub\ftproot\groups\recursadores" /inheritance:r /grant:r "Administrators:(OI)(CI)F" | Out-Null
     icacls "C:\inetpub\ftproot\users" /inheritance:r /grant:r "Administrators:(OI)(CI)F" | Out-Null
 
-    # CRITICO: Dar permisos de recorrido a NT SERVICE\FTPSVC (el servicio FTP de IIS)
-    # Sin esto el servicio no puede leer los directorios home y devuelve error 5 (Access Denied)
-    icacls "C:\inetpub\ftproot" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX" | Out-Null
-    icacls "C:\inetpub\ftproot" /grant "Users:RX" | Out-Null
-
-    # Asegurar que LocalUser exista antes de establecer permisos
-    if (-not (Test-Path "C:\inetpub\ftproot\LocalUser")) {
-        New-Item -ItemType Directory -Path "C:\inetpub\ftproot\LocalUser" -Force | Out-Null
-    }
-    icacls "C:\inetpub\ftproot\LocalUser" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX" | Out-Null
-    icacls "C:\inetpub\ftproot\LocalUser" /grant "Users:RX" | Out-Null
-
-    # Asegurar subdirectorio del nombre del equipo con permisos de recorrido
-    $localUserComputerPath = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME"
-    if (-not (Test-Path $localUserComputerPath)) {
-        New-Item -ItemType Directory -Path $localUserComputerPath -Force | Out-Null
-    }
-    icacls $localUserComputerPath /grant "NT SERVICE\FTPSVC:(OI)(CI)RX" | Out-Null
-    icacls $localUserComputerPath /grant "Users:RX" | Out-Null
+    # Permitir recorrido y lectura (este directorio solamente, sin herencia) a usuarios locales
+    icacls "C:\inetpub\ftproot" /grant "Users:R" | Out-Null
+    icacls "C:\inetpub\ftproot\LocalUser" /grant "Users:R" | Out-Null
 
     # 3. Configurar el sitio FTP en IIS
     Write-Host "[3/3] Configurando sitio FTP en IIS con aislamiento de usuarios..." -ForegroundColor Blue
@@ -95,8 +79,9 @@ function Instalar-FTP-Windows {
     # Crear el sitio usando el proveedor IIS:\
     New-Item -Path "IIS:\Sites\$siteName" -bindings @{protocol="ftp";bindingInformation="*:21:"} -physicalPath "C:\inetpub\ftproot" | Out-Null
 
-    # Habilitar aislamiento por directorio local (LocalUser\<usuario>)
-    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value "LocalDirectory"
+    # Modo de aislamiento 3 = IsolateAllDirectories para usuarios locales sin dominio.
+    # Con este modo IIS busca el home en: %FtpRoot%\LocalUser\%Username%  (SIN prefijo del equipo)
+    Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value 3
 
     # Configurar autenticación básica y anónima usando Set-ItemProperty (sencillo y sin warnings)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
@@ -189,58 +174,36 @@ function Crear-Usuario-FTP-Windows {
     # Permisos NTFS restrictivos para carpeta personal
     icacls $userPersonalPath /inheritance:r /grant:r "${username}:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" | Out-Null
 
-    # Crear las carpetas físicas de aislamiento (tanto con prefijo de equipo como sin él como fallback)
-    $computerDirPath = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME"
-    if (-not (Test-Path $computerDirPath)) {
-        New-Item -ItemType Directory -Path $computerDirPath -Force | Out-Null
+    # Crear carpeta fisica de home de aislamiento: LocalUser\username  (SIN prefijo de equipo)
+    $userRootPath = "C:\inetpub\ftproot\LocalUser\$username"
+    if (-not (Test-Path $userRootPath)) {
+        New-Item -ItemType Directory -Path $userRootPath -Force | Out-Null
     }
-    icacls $computerDirPath /grant "NT SERVICE\FTPSVC:(OI)(CI)RX" | Out-Null
-    icacls $computerDirPath /grant "Users:RX" | Out-Null
+    # NTFS: usuario tiene full control sobre su propio home, FTPSVC puede leer/ejecutar
+    icacls $userRootPath /inheritance:r /grant:r "${username}:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" /grant:r "NT SERVICE\FTPSVC:(OI)(CI)RX" | Out-Null
 
-    # 1. Ruta con prefijo de equipo
-    $userRootPathComputer = "C:\inetpub\ftproot\LocalUser\$env:COMPUTERNAME\$username"
-    if (-not (Test-Path $userRootPathComputer)) {
-        New-Item -ItemType Directory -Path $userRootPathComputer -Force | Out-Null
-    }
-    icacls $userRootPathComputer /grant:r "${username}:(OI)(CI)RX" /grant:r "Administrators:(OI)(CI)F" /grant:r "NT SERVICE\FTPSVC:(OI)(CI)RX" /inheritance:e | Out-Null
-
-    # 2. Ruta sin prefijo de equipo (fallback)
-    $userRootPathPlain = "C:\inetpub\ftproot\LocalUser\$username"
-    if (-not (Test-Path $userRootPathPlain)) {
-        New-Item -ItemType Directory -Path $userRootPathPlain -Force | Out-Null
-    }
-    icacls $userRootPathPlain /grant:r "${username}:(OI)(CI)RX" /grant:r "Administrators:(OI)(CI)F" /grant:r "NT SERVICE\FTPSVC:(OI)(CI)RX" /inheritance:e | Out-Null
-
-    # Configurar directorios virtuales en IIS para ambas estructuras (con y sin prefijo de equipo)
+    # Configurar directorios virtuales en IIS bajo LocalUser\username
     Import-Module WebAdministration
     $siteName = "FTP_SysAdmin"
+    $iisBase = "IIS:\Sites\$siteName\LocalUser\$username"
 
-    $pathsToConfig = @(
-        "LocalUser\$env:COMPUTERNAME\$username",
-        "LocalUser\$username"
-    )
-
-    foreach ($p in $pathsToConfig) {
-        # 1. Virtual 'general'
-        $vdirGenPath = "IIS:\Sites\$siteName\$p\general"
-        if (-not (Test-Path $vdirGenPath)) {
-            New-Item -Path $vdirGenPath -PhysicalPath "C:\inetpub\ftproot\general" -Type VirtualDirectory | Out-Null
-        }
-
-        # 2. Virtual del Grupo
-        Remove-Item -Path "IIS:\Sites\$siteName\$p\reprobados" -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item -Path "IIS:\Sites\$siteName\$p\recursadores" -Recurse -Force -ErrorAction SilentlyContinue
-        
-        New-Item -Path "IIS:\Sites\$siteName\$p\$group" -PhysicalPath "C:\inetpub\ftproot\groups\$group" -Type VirtualDirectory | Out-Null
-
-        # 3. Virtual de carpeta personal (con el nombre del usuario)
-        $vdirPersPath = "IIS:\Sites\$siteName\$p\$username"
-        if (-not (Test-Path $vdirPersPath)) {
-            New-Item -Path $vdirPersPath -PhysicalPath "C:\inetpub\ftproot\users\$username" -Type VirtualDirectory | Out-Null
-        }
+    # Virtual 'general'
+    if (-not (Test-Path "$iisBase\general")) {
+        New-Item -Path "$iisBase\general" -PhysicalPath "C:\inetpub\ftproot\general" -Type VirtualDirectory | Out-Null
     }
 
-    Write-Host "[OK] Aislamiento de directorios virtuales creado para '$username' (en ambas estructuras de carpetas)." -ForegroundColor Green
+    # Virtual del grupo (limpiar viejos y crear nuevo)
+    Remove-Item -Path "$iisBase\reprobados" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$iisBase\recursadores" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -Path "$iisBase\$group" -PhysicalPath "C:\inetpub\ftproot\groups\$group" -Type VirtualDirectory | Out-Null
+
+    # Virtual de carpeta personal
+    if (-not (Test-Path "$iisBase\$username")) {
+        New-Item -Path "$iisBase\$username" -PhysicalPath "C:\inetpub\ftproot\users\$username" -Type VirtualDirectory | Out-Null
+    }
+
+    Write-Host "[OK] Home de aislamiento: $userRootPath" -ForegroundColor Green
+    Write-Host "[OK] Directorios virtuales configurados en IIS bajo LocalUser\$username" -ForegroundColor Green
 }
 
 function Cambiar-Grupo-Usuario-Windows {

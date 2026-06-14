@@ -1,0 +1,6 @@
+icacls "C:\inetpub\ftproot" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX"
+icacls "C:\inetpub\ftproot\LocalUser" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX"
+icacls "C:\inetpub\ftproot\LocalUser\SRV-WIN-SISTEMA" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX"
+icacls "C:\inetpub\ftproot\LocalUser\SRV-WIN-SISTEMA\alumno1" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX"
+icacls "C:\inetpub\ftproot\LocalUser\alumno1" /grant "NT SERVICE\FTPSVC:(OI)(CI)RX"
+Restart-Service ftpsvc -Force
