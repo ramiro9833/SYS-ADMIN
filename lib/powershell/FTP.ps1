@@ -67,10 +67,10 @@ function Instalar-FTP-Windows {
     # Habilitar aislamiento por directorio local (LocalUser\<usuario>)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.userIsolation.mode -Value "LocalDirectory"
 
-    # Configurar autenticación básica y anónima usando Set-WebConfigurationProperty (más robusto que Set-ItemProperty)
-    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
-    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value $true -PSPath "IIS:\Sites\$siteName"
-    Set-WebConfigurationProperty -Filter "system.ftpServer/security/authentication/basicAuthentication" -Name "defaultDomain" -Value $env:COMPUTERNAME -PSPath "IIS:\Sites\$siteName"
+    # Configurar autenticación básica y anónima usando la ruta completa en system.applicationHost/sites
+    Set-WebConfigurationProperty -PSPath "MACHINE/WEBROOT/APPHOST" -Filter "system.applicationHost/sites/site[@name='$siteName']/ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $true
+    Set-WebConfigurationProperty -PSPath "MACHINE/WEBROOT/APPHOST" -Filter "system.applicationHost/sites/site[@name='$siteName']/ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value $true
+    Set-WebConfigurationProperty -PSPath "MACHINE/WEBROOT/APPHOST" -Filter "system.applicationHost/sites/site[@name='$siteName']/ftpServer/security/authentication/basicAuthentication" -Name "defaultDomain" -Value $env:COMPUTERNAME
 
     # Configurar directiva SSL: Permitir sin requerir (SslAllow)
     Set-ItemProperty "IIS:\Sites\$siteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
@@ -78,11 +78,11 @@ function Instalar-FTP-Windows {
 
     # Configurar autorización FTP global: Permitir lectura/escritura a todos
     # (Los accesos se limitarán a nivel de NTFS)
-    $filter = "system.ftpServer/security/authorization"
+    $authFilter = "system.applicationHost/sites/site[@name='$siteName']/ftpServer/security/authorization"
     # Limpiar reglas existentes
-    Clear-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName" -ErrorAction SilentlyContinue
+    Clear-WebConfiguration -PSPath "MACHINE/WEBROOT/APPHOST" -Filter $authFilter -ErrorAction SilentlyContinue
     # Agregar regla para todos los usuarios
-    Add-WebConfiguration -Filter $filter -PSPath "IIS:\Sites\$siteName" -Value @{accessType="Allow"; users="*"; roles=""; permissions="Read, Write"}
+    Add-WebConfiguration -PSPath "MACHINE/WEBROOT/APPHOST" -Filter $authFilter -Value @{accessType="Allow"; users="*"; roles=""; permissions="Read, Write"}
 
     # Crear directorio virtual 'general' para el usuario Anonymous (Public)
     $publicGeneralPath = "IIS:\Sites\$siteName\LocalUser\Public\general"
