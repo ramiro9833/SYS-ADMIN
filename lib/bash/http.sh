@@ -75,24 +75,28 @@ consultar_versiones_nginx() {
   printf '%s\n' "${VERS[@]}"
 }
 
-# ─── Consultar versiones Tomcat (GitHub API) ──────────────────────────────────
+# ─── Consultar versiones Tomcat (mirror oficial Apache) ──────────────────────
 consultar_versiones_tomcat() {
-  echo -e "${YELLOW}[INFO] Consultando versiones disponibles de Tomcat (GitHub API)...${NC}" >&2
+  echo -e "${YELLOW}[INFO] Consultando versiones disponibles de Tomcat...${NC}" >&2
   if ! command -v curl &>/dev/null; then apt-get install -y -qq curl; fi
-  # Obtiene releases de Apache Tomcat 10.x y 9.x
-  local api_url="https://api.github.com/repos/apache/tomcat/tags"
-  mapfile -t VERS < <(
-    curl -s --max-time 10 "$api_url" 2>/dev/null \
-    | grep '"name"' \
-    | grep -oP '(?<="name": ")10\.[0-9]+\.[0-9]+|9\.[0-9]+\.[0-9]+' \
-    | sort -Vr | head -6
-  )
-  if [[ ${#VERS[@]} -eq 0 ]]; then
-    # Fallback: versiones estáticas si no hay internet
-    VERS=("10.1.34" "10.1.30" "9.0.104" "9.0.100")
-    echo -e "${YELLOW}[WARN] Sin acceso a la API. Usando versiones conocidas.${NC}" >&2
+
+  # Intentar obtener versiones reales desde el mirror de Apache (sin GitHub)
+  local vers=()
+  for major in 10 9; do
+    local index_url="https://downloads.apache.org/tomcat/tomcat-${major}/"
+    local found
+    found=$(curl -s --max-time 10 "$index_url" 2>/dev/null \
+      | grep -oP "v${major}\.[0-9]+\.[0-9]+" | sort -Vr | head -3)
+    while IFS= read -r v; do
+      [[ -n "$v" ]] && vers+=("${v#v}")
+    done <<< "$found"
+  done
+
+  if [[ ${#vers[@]} -eq 0 ]]; then
+    vers=("10.1.34" "10.1.30" "9.0.104" "9.0.100")
+    echo -e "${YELLOW}[WARN] Sin acceso al mirror. Usando versiones conocidas.${NC}" >&2
   fi
-  printf '%s\n' "${VERS[@]}"
+  printf '%s\n' "${vers[@]}"
 }
 
 # ─── Mostrar menú de selección de versión ────────────────────────────────────
@@ -228,8 +232,7 @@ instalar_apache() {
   configurar_firewall_linux "$puerto" "Apache2"
 
   echo -e "\n${GREEN}${BOLD}[✓] Apache2 desplegado en puerto ${puerto}${NC}"
-  echo -e "${CYAN}Verificación: curl -I http://localhost:${puerto}${NC}"
-  curl -s -I "http://localhost:${puerto}" 2>/dev/null | head -6 || true
+  mostrar_acceso_servicio "Apache2" "$puerto"
 }
 
 aplicar_hardening_apache() {
@@ -319,8 +322,7 @@ NGXEOF
   configurar_firewall_linux "$puerto" "Nginx"
 
   echo -e "\n${GREEN}${BOLD}[✓] Nginx desplegado en puerto ${puerto}${NC}"
-  echo -e "${CYAN}Verificación: curl -I http://localhost:${puerto}${NC}"
-  curl -s -I "http://localhost:${puerto}" 2>/dev/null | head -6 || true
+  mostrar_acceso_servicio "Nginx" "$puerto"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -334,37 +336,55 @@ instalar_tomcat() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get install -y -qq openjdk-17-jre-headless curl tar 2>/dev/null
 
-  # Determinar major version para construir la URL
   local major; major=$(echo "$version" | cut -d. -f1)
-  local url="https://archive.apache.org/dist/tomcat/tomcat-${major}/v${version}/bin/apache-tomcat-${version}.tar.gz"
-
-  echo -e "${YELLOW}[INFO] Descargando Tomcat desde: ${url}${NC}"
   local tmp_file="/tmp/tomcat-${version}.tar.gz"
-  if ! curl -sL --max-time 120 -o "$tmp_file" "$url"; then
-    echo -e "${RED}[ERROR] No se pudo descargar Tomcat ${version}.${NC}"
+  local descargado=false
+
+  # Intentar mirror principal primero, luego archive
+  for base_url in \
+    "https://downloads.apache.org/tomcat/tomcat-${major}/v${version}/bin" \
+    "https://archive.apache.org/dist/tomcat/tomcat-${major}/v${version}/bin" \
+    "https://dlcdn.apache.org/tomcat/tomcat-${major}/v${version}/bin"; do
+
+    local url="${base_url}/apache-tomcat-${version}.tar.gz"
+    echo -e "${YELLOW}[INFO] Descargando desde: ${url}${NC}"
+    if curl -fsSL --max-time 120 -o "$tmp_file" "$url" 2>/dev/null; then
+      # Verificar que el archivo es un tarball válido
+      if tar tzf "$tmp_file" &>/dev/null; then
+        descargado=true
+        echo -e "${GREEN}[OK] Descarga exitosa.${NC}"
+        break
+      else
+        echo -e "${YELLOW}[WARN] Archivo corrupto desde ese mirror. Probando siguiente...${NC}"
+        rm -f "$tmp_file"
+      fi
+    fi
+  done
+
+  if [[ "$descargado" != true ]]; then
+    echo -e "${RED}[ERROR] No se pudo descargar Tomcat ${version} desde ningún mirror.${NC}"
+    echo -e "${YELLOW}[INFO] Intenta con otra versión (ej. 10.1.30 o 9.0.100).${NC}"
     return 1
   fi
 
-  # Instalar
   rm -rf "${TOMCAT_BASE}"
   mkdir -p "${TOMCAT_BASE}"
   tar xzf "$tmp_file" -C "${TOMCAT_BASE}" --strip-components=1
   rm -f "$tmp_file"
 
-  # Usuario dedicado
   crear_usuario_servicio "$TOMCAT_USER" "$TOMCAT_BASE"
   chown -R "${TOMCAT_USER}:${TOMCAT_USER}" "${TOMCAT_BASE}"
   chmod -R 750 "${TOMCAT_BASE}"
-  # Solo acceso a webapps
   chmod 755 "${TOMCAT_BASE}/webapps"
+
+  # Detectar JAVA_HOME dinámicamente
+  local java_home; java_home=$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")
 
   # Configurar puerto en server.xml
   sed -i "s/port=\"8080\"/port=\"${puerto}\"/" "${TOMCAT_BASE}/conf/server.xml"
 
-  # index.html personalizado en ROOT webapp
   crear_index_html "${TOMCAT_BASE}/webapps/ROOT" "Tomcat" "$version" "$puerto"
 
-  # Systemd service
   cat > /etc/systemd/system/tomcat.service <<SVCEOF
 [Unit]
 Description=Apache Tomcat ${version}
@@ -374,11 +394,12 @@ After=network.target
 Type=forking
 User=${TOMCAT_USER}
 Group=${TOMCAT_USER}
-Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+Environment=JAVA_HOME=${java_home}
 Environment=CATALINA_HOME=${TOMCAT_BASE}
 ExecStart=${TOMCAT_BASE}/bin/startup.sh
 ExecStop=${TOMCAT_BASE}/bin/shutdown.sh
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -387,13 +408,13 @@ SVCEOF
   systemctl daemon-reload
   systemctl enable tomcat --quiet
   systemctl restart tomcat
+  echo -e "${YELLOW}[INFO] Esperando inicio de Tomcat (10s)...${NC}"
+  sleep 10
 
   configurar_firewall_linux "$puerto" "Tomcat"
 
-  echo -e "\n${GREEN}${BOLD}[✓] Tomcat desplegado en puerto ${puerto}${NC}"
-  sleep 3
-  echo -e "${CYAN}Verificación: curl -I http://localhost:${puerto}${NC}"
-  curl -s -I "http://localhost:${puerto}" 2>/dev/null | head -6 || true
+  echo -e "\n${GREEN}${BOLD}[✓] Tomcat ${version} desplegado en puerto ${puerto}${NC}"
+  mostrar_acceso_servicio "Tomcat" "$puerto"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -408,15 +429,65 @@ menu_http_linux() {
   echo -e "  ${BOLD}5)${NC} Salir"
 }
 
+# ─── Mostrar acceso al servicio (URLs) ──────────────────────────────────────
+mostrar_acceso_servicio() {
+  local servicio="$1"
+  local puerto="$2"
+  local ip; ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  echo -e "\n${BOLD}${CYAN}══════════════════════════════════════════${NC}"
+  echo -e "  ${GREEN}${BOLD}✓ ${servicio} listo${NC}"
+  echo -e "  Acceso local:  ${CYAN}http://localhost:${puerto}${NC}"
+  echo -e "  Acceso remoto: ${CYAN}http://${ip}:${puerto}${NC}"
+  echo -e "  Verificar:     ${YELLOW}curl -I http://localhost:${puerto}${NC}"
+  echo -e "${BOLD}${CYAN}══════════════════════════════════════════${NC}"
+  echo -e "\n${BOLD}Encabezados HTTP:${NC}"
+  curl -s -I --max-time 5 "http://localhost:${puerto}" 2>/dev/null \
+    | grep -E 'HTTP/|Server:|X-Frame|X-Content|Content-Type' \
+    || echo -e "  ${YELLOW}(Servicio aun iniciando, reintenta en unos segundos)${NC}"
+}
+
 estado_servicios_http() {
   banner "ESTADO SERVICIOS HTTP"
-  for svc in apache2 nginx tomcat; do
+  local ip; ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+
+  # Estado de cada servicio con puerto detectado
+  local servicios=( apache2 nginx tomcat )
+  for svc in "${servicios[@]}"; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
-      echo -e "  ${GREEN}[ACTIVO]${NC}   $svc"
+      # Detectar el puerto real en que escucha
+      local pid; pid=$(systemctl show -p MainPID "$svc" 2>/dev/null | cut -d= -f2)
+      local puerto_real=""
+      if [[ -n "$pid" && "$pid" != "0" ]]; then
+        puerto_real=$(ss -tlnp 2>/dev/null | grep "pid=${pid}" | awk '{print $4}' | grep -oP ':\K[0-9]+$' | head -1)
+      fi
+      # Fallback: buscar en la config
+      if [[ -z "$puerto_real" ]]; then
+        case "$svc" in
+          apache2) puerto_real=$(grep -m1 '^Listen' /etc/apache2/ports.conf 2>/dev/null | awk '{print $2}') ;;
+          nginx)   puerto_real=$(grep -m1 'listen' /etc/nginx/sites-enabled/default 2>/dev/null | grep -oP '[0-9]+') ;;
+          tomcat)  puerto_real=$(grep -oP 'port="\K[0-9]+' /opt/tomcat/conf/server.xml 2>/dev/null | head -1) ;;
+        esac
+      fi
+      local url=""
+      [[ -n "$puerto_real" ]] && url="  → ${CYAN}http://${ip}:${puerto_real}${NC}"
+      echo -e "  ${GREEN}[ACTIVO  ]${NC} ${BOLD}${svc}${NC} (puerto: ${puerto_real:-?})${url}"
     else
-      echo -e "  ${RED}[INACTIVO]${NC} $svc"
+      echo -e "  ${RED}[INACTIVO]${NC} ${BOLD}${svc}${NC}"
     fi
   done
-  echo -e "\n${BOLD}Puertos en escucha (HTTP):${NC}"
-  ss -tlnp 2>/dev/null | grep -E ':80|:8080|:8888|:443' | awk '{print "  " $4}' || echo "  (ninguno)"
+
+  echo -e "\n${BOLD}Todos los puertos HTTP activos:${NC}"
+  local puertos_activos
+  puertos_activos=$(ss -tlnp 2>/dev/null | grep -v 'LISTEN\|Local' | awk '{print $4}' \
+    | grep -oP ':\K[0-9]+$' | sort -u | while read -r p; do
+      # Solo puertos web comunes (no SSH, DB, etc.)
+      if ! echo "${PUERTOS_RESERVADOS[*]}" | grep -qw "$p"; then
+        echo -e "    Puerto ${YELLOW}${p}${NC}  →  ${CYAN}http://${ip}:${p}${NC}   $(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://localhost:${p} 2>/dev/null)"
+      fi
+    done)
+  if [[ -z "$puertos_activos" ]]; then
+    echo -e "  ${YELLOW}(ningún servicio HTTP detectado)${NC}"
+  else
+    echo -e "$puertos_activos"
+  fi
 }
