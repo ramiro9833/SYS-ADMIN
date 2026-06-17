@@ -3,7 +3,7 @@
 # Uso: Ejecutar como Administrador (desde SSH o PowerShell elevado)
 # Operacion: Exclusivamente por SSH desde cliente remoto.
 
-$ErrorActionPreference = "SilentlyContinue"
+$ErrorActionPreference = "Continue"
 
 # Localizar librería en drives montados
 $libDir = $null
