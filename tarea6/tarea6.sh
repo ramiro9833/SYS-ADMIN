@@ -7,9 +7,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib/bash"
 [[ ! -d "$LIB_DIR" ]] && LIB_DIR="/mnt/sysadmin/lib/bash"
+[[ ! -d "$LIB_DIR" ]] && LIB_DIR="${SCRIPT_DIR}"
 
-source "${LIB_DIR}/comunes.sh" || { echo "[ERROR] comunes.sh no encontrado."; exit 1; }
-source "${LIB_DIR}/http.sh"    || { echo "[ERROR] http.sh no encontrado."; exit 1; }
+source "${LIB_DIR}/comunes.sh" || { echo "[ERROR] comunes.sh no encontrado en ${LIB_DIR}."; exit 1; }
+source "${LIB_DIR}/http.sh"    || { echo "[ERROR] http.sh no encontrado en ${LIB_DIR}."; exit 1; }
 
 verificar_root
 
