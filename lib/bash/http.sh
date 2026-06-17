@@ -128,12 +128,12 @@ seleccionar_version() {
   local servicio="$1"
   shift
   local versiones=("$@")
-  echo -e "\n${BOLD}Versiones disponibles para ${CYAN}${servicio}${NC}${BOLD}:${NC}"
+  echo -e "\n${BOLD}Versiones disponibles para ${CYAN}${servicio}${NC}${BOLD}:${NC}" >&2
   for i in "${!versiones[@]}"; do
     local label=""
     [[ $i -eq 0 ]] && label=" ${GREEN}(Latest)${NC}"
     [[ $i -eq 1 ]] && label=" ${YELLOW}(Stable/LTS)${NC}"
-    echo -e "  ${BOLD}$((i+1)))${NC} ${versiones[$i]}${label}"
+    echo -e "  ${BOLD}$((i+1)))${NC} ${versiones[$i]}${label}" >&2
   done
   local sel=""
   while true; do
