@@ -426,6 +426,9 @@ instalar_tomcat() {
   local version="$1"
   local puerto="$2"
 
+  # Limpiar retornos de carro y espacios
+  version=$(echo "$version" | tr -d '[:space:]')
+
   verifico_previo_y_pregunto "tomcat" "" || return 0
 
   banner "INSTALANDO APACHE TOMCAT v${version} EN PUERTO ${puerto}"
