@@ -1,0 +1,5 @@
+scp "/media/sf_SYS-ADMIN/tarea6/tarea6.sh" server-linux@192.168.100.10:~/tarea6.sh
+scp "/media/sf_SYS-ADMIN/lib/bash/http.sh" server-linux@192.168.100.10:~/http.sh
+scp "/media/sf_SYS-ADMIN/lib/bash/comunes.sh" server-linux@192.168.100.10:~/comunes.sh
+5
+scp "/media/sf_SYS-ADMIN/apache-tomcat-10.1.34.tar.gz" server-linux@192.168.100.10:~/

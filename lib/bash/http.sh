@@ -507,16 +507,17 @@ instalar_tomcat() {
   chmod -R 750 "${TOMCAT_BASE}"
   chmod 755 "${TOMCAT_BASE}/webapps"
 
-  # Detectar JAVA_HOME dinámicamente
+  # Detectar o aprovisionar JAVA_HOME
   local java_home=""
   if command -v java &>/dev/null; then
     java_home=$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")
   else
-    # Buscar una instalación típica si existe en directorios estándar
+    # Buscar una instalación típica
     local posibles_paths=(
       "/usr/lib/jvm/java-17-openjdk-amd64"
       "/usr/lib/jvm/java-11-openjdk-amd64"
       "/usr/lib/jvm/default-java"
+      "/opt/java"
     )
     for path in "${posibles_paths[@]}"; do
       if [[ -d "$path" ]]; then
@@ -526,11 +527,27 @@ instalar_tomcat() {
     done
   fi
 
+  # Fallback Offline: Buscar si el usuario subió un tarball de Java/JDK/JRE
   if [[ -z "$java_home" ]]; then
-    echo -e "${RED}[ERROR] No se detectó Java (JRE/JDK) instalado en el sistema.${NC}"
-    echo -e "${YELLOW}[INFO] Para instalar Tomcat de manera offline, primero debes tener Java.${NC}"
-    echo -e "       Instala el paquete localmente ejecutando en el servidor con internet o descarga"
-    echo -e "       el paquete .deb de Java (openjdk-17-jre-headless) y colócalo en tu carpeta compartida.${NC}"
+    echo -e "${YELLOW}[INFO] Buscando un paquete Java (tar.gz) local para instalación offline...${NC}"
+    local local_java_tarball
+    local_java_tarball=$(find /tmp /home /mnt/sysadmin "$SCRIPT_DIR" "$(dirname "$SCRIPT_DIR")" -maxdepth 3 \( -name "*jdk*.tar.gz" -o -name "*jre*.tar.gz" -o -name "*openjdk*.tar.gz" \) 2>/dev/null | head -1)
+    
+    if [[ -n "$local_java_tarball" ]]; then
+      echo -e "${GREEN}[INFO] Se encontró un paquete de Java local en: $local_java_tarball. Extrayendo...${NC}"
+      mkdir -p /opt/java
+      tar xzf "$local_java_tarball" -C /opt/java --strip-components=1
+      java_home="/opt/java"
+      # Hacerlo accesible globalmente
+      ln -sf /opt/java/bin/java /usr/bin/java
+      echo -e "${GREEN}[OK] Java configurado en /opt/java.${NC}"
+    fi
+  fi
+
+  if [[ -z "$java_home" ]]; then
+    echo -e "${RED}[ERROR] No se detectó Java instalado ni ningún paquete de Java (.tar.gz) local.${NC}"
+    echo -e "${YELLOW}[INFO] Descarga un JRE portable desde tu máquina real y colócalo en la carpeta compartida:${NC}"
+    echo -e "${CYAN}  https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.10%2B7/OpenJDK17U-jre_x64_linux_hotspot_17.0.10_7.tar.gz${NC}"
     return 1
   fi
 
