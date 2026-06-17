@@ -403,13 +403,13 @@ instalar_tomcat() {
 
   banner "INSTALANDO APACHE TOMCAT v${version} EN PUERTO ${puerto}"
   export DEBIAN_FRONTEND=noninteractive
-  apt-get install -y -qq openjdk-17-jre-headless curl tar 2>/dev/null
+  apt-get install -y -qq openjdk-17-jre-headless curl tar ca-certificates 2>/dev/null
 
   local major; major=$(echo "$version" | cut -d. -f1)
   local tmp_file="/tmp/tomcat-${version}.tar.gz"
   local descargado=false
 
-  # Intentar mirror principal primero, luego archive
+  # Intentar mirror principal primero, luego archive, luego CDN
   for base_url in \
     "https://downloads.apache.org/tomcat/tomcat-${major}/v${version}/bin" \
     "https://archive.apache.org/dist/tomcat/tomcat-${major}/v${version}/bin" \
@@ -417,23 +417,57 @@ instalar_tomcat() {
 
     local url="${base_url}/apache-tomcat-${version}.tar.gz"
     echo -e "${YELLOW}[INFO] Descargando desde: ${url}${NC}"
-    if curl -fsSL --max-time 120 -o "$tmp_file" "$url" 2>/dev/null; then
-      # Verificar que el archivo es un tarball válido
+    
+    # 1. Intento normal
+    local err_msg
+    err_msg=$(curl -fsSL --max-time 120 -o "$tmp_file" "$url" 2>&1)
+    local status=$?
+    
+    # 2. Intento ignorando certificado (por si ca-certificates está desactualizado)
+    if (( status != 0 )); then
+      echo -e "${YELLOW}[WARN] Descarga estándar falló (Código: $status). Reintentando con --insecure...${NC}"
+      err_msg=$(curl -fsSLk --max-time 120 -o "$tmp_file" "$url" 2>&1)
+      status=$?
+    fi
+    
+    # 3. Intento vía HTTP (por si la red bloquea descargas seguras externas)
+    if (( status != 0 )); then
+      local http_url="${url/https:/http:}"
+      echo -e "${YELLOW}[WARN] Reintentando vía HTTP normal: ${http_url}...${NC}"
+      err_msg=$(curl -fsSLk --max-time 120 -o "$tmp_file" "$http_url" 2>&1)
+      status=$?
+    fi
+
+    if (( status == 0 )); then
+      # Verificar que el archivo sea un tarball gzip válido
       if tar tzf "$tmp_file" &>/dev/null; then
         descargado=true
         echo -e "${GREEN}[OK] Descarga exitosa.${NC}"
         break
       else
-        echo -e "${YELLOW}[WARN] Archivo corrupto desde ese mirror. Probando siguiente...${NC}"
+        echo -e "${RED}[ERROR] El archivo descargado está dañado o no es un comprimido válido.${NC}"
         rm -f "$tmp_file"
       fi
+    else
+      echo -e "${RED}[ERROR] Falló mirror. Curl reportó: ${err_msg}${NC}"
     fi
   done
 
   if [[ "$descargado" != true ]]; then
-    echo -e "${RED}[ERROR] No se pudo descargar Tomcat ${version} desde ningún mirror.${NC}"
-    echo -e "${YELLOW}[INFO] Intenta con otra versión (ej. 10.1.30 o 9.0.100).${NC}"
-    return 1
+    echo -e "${RED}[ERROR] No se pudo descargar Tomcat ${version} desde ningún origen.${NC}"
+    echo -e "${YELLOW}[INFO] Si el servidor no tiene conexión a Internet externa, descarga manualmente:${NC}"
+    echo -e "${CYAN}  apache-tomcat-${version}.tar.gz${NC}"
+    echo -e "${YELLOW}  y colócalo en la carpeta /tmp del servidor antes de ejecutar el script.${NC}"
+    
+    # Intentar buscar si el usuario ya dejó un tarball en /tmp o en el home
+    local local_tarball; local_tarball=$(find /tmp /home -maxdepth 2 -name "apache-tomcat-${version}.tar.gz" 2>/dev/null | head -1)
+    if [[ -n "$local_tarball" ]]; then
+      echo -e "${GREEN}[INFO] Se encontró un instalador local en: $local_tarball. Usando esta copia.${NC}"
+      cp "$local_tarball" "$tmp_file"
+      descargado=true
+    else
+      return 1
+    fi
   fi
 
   rm -rf "${TOMCAT_BASE}"
