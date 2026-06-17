@@ -467,8 +467,8 @@ instalar_tomcat() {
     echo -e "${CYAN}  apache-tomcat-${version}.tar.gz${NC}"
     echo -e "${YELLOW}  y colócalo en la carpeta /tmp del servidor antes de ejecutar el script.${NC}"
     
-    # Intentar buscar si el usuario ya dejó un tarball en /tmp o en el home
-    local local_tarball; local_tarball=$(find /tmp /home -maxdepth 2 -name "apache-tomcat-${version}.tar.gz" 2>/dev/null | head -1)
+    # Intentar buscar en /tmp, /home, la carpeta compartida /mnt/sysadmin o el directorio de scripts
+    local local_tarball; local_tarball=$(find /tmp /home /mnt/sysadmin "$SCRIPT_DIR" "$(dirname "$SCRIPT_DIR")" -maxdepth 3 -name "apache-tomcat-${version}.tar.gz" 2>/dev/null | head -1)
     if [[ -n "$local_tarball" ]]; then
       echo -e "${GREEN}[INFO] Se encontró un instalador local en: $local_tarball. Usando esta copia.${NC}"
       cp "$local_tarball" "$tmp_file"
