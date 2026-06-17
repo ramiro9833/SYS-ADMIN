@@ -190,12 +190,77 @@ configurar_firewall_linux() {
   echo -e "${GREEN}[OK] Firewall: puerto ${puerto}/tcp habilitado.${NC}"
 }
 
+# ─── Verificar si el servicio ya existe y preguntar qué hacer ─────────────────
+verifico_previo_y_pregunto() {
+  local servicio="$1"   # nombre del systemd unit
+  local pkg="$2"        # nombre del paquete apt (puede ser vacío para Tomcat)
+
+  local activo=false
+  local instalado=false
+
+  systemctl is-active --quiet "$servicio" 2>/dev/null && activo=true
+  if [[ -n "$pkg" ]]; then
+    dpkg -l "$pkg" 2>/dev/null | grep -q '^ii' && instalado=true
+  elif [[ "$servicio" == "tomcat" ]]; then
+    [[ -d "$TOMCAT_BASE/bin" ]] && instalado=true
+  fi
+
+  if [[ "$activo" == false && "$instalado" == false ]]; then
+    return 0   # no existe → proceder con instalación normal
+  fi
+
+  # Ya existe
+  echo -e "\n${YELLOW}${BOLD}[!] ${servicio} ya está instalado en este servidor.${NC}"
+  $activo && echo -e "    Estado: ${GREEN}ACTIVO${NC}" || echo -e "    Estado: ${RED}INACTIVO${NC}"
+  echo -e ""
+  echo -e "  ${BOLD}1)${NC} Mantener el actual y solo cambiar configuración (puerto/versión)"
+  echo -e "  ${BOLD}2)${NC} Desinstalar completamente y volver a instalar desde cero"
+  echo -e "  ${BOLD}3)${NC} Cancelar (volver al menú)"
+  echo ""
+
+  local opc
+  while true; do
+    read -rp "¿Qué deseas hacer? (1/2/3): " opc
+    case "$opc" in
+      1) return 0    ;; # seguir — la función de instalación sobreescribe la config
+      2)               # desinstalar primero
+        echo -e "${YELLOW}[INFO] Desinstalando ${servicio}...${NC}"
+        case "$servicio" in
+          apache2)
+            systemctl stop apache2 2>/dev/null
+            apt-get purge -y -qq apache2 apache2-bin apache2-data apache2-utils 2>/dev/null
+            rm -rf /etc/apache2 /var/log/apache2
+            ;;
+          nginx)
+            systemctl stop nginx 2>/dev/null
+            apt-get purge -y -qq nginx nginx-common 2>/dev/null
+            rm -rf /etc/nginx
+            ;;
+          tomcat)
+            systemctl stop tomcat 2>/dev/null
+            systemctl disable tomcat 2>/dev/null
+            rm -f /etc/systemd/system/tomcat.service
+            rm -rf "$TOMCAT_BASE"
+            systemctl daemon-reload
+            ;;
+        esac
+        echo -e "${GREEN}[OK] ${servicio} desinstalado. Procediendo con instalación limpia.${NC}"
+        return 0
+        ;;
+      3) echo -e "${YELLOW}Cancelado.${NC}"; return 1 ;;
+      *) echo -e "${RED}Opción inválida (1, 2 o 3).${NC}" ;;
+    esac
+  done
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # APACHE2
 # ═══════════════════════════════════════════════════════════════════════════════
 instalar_apache() {
   local version="$1"
   local puerto="$2"
+
+  verifico_previo_y_pregunto "apache2" "apache2" || return 0
 
   banner "INSTALANDO APACHE2 v${version} EN PUERTO ${puerto}"
   export DEBIAN_FRONTEND=noninteractive
@@ -272,6 +337,8 @@ instalar_nginx() {
   local version="$1"
   local puerto="$2"
 
+  verifico_previo_y_pregunto "nginx" "nginx" || return 0
+
   banner "INSTALANDO NGINX v${version} EN PUERTO ${puerto}"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
@@ -331,6 +398,8 @@ NGXEOF
 instalar_tomcat() {
   local version="$1"
   local puerto="$2"
+
+  verifico_previo_y_pregunto "tomcat" "" || return 0
 
   banner "INSTALANDO APACHE TOMCAT v${version} EN PUERTO ${puerto}"
   export DEBIAN_FRONTEND=noninteractive
