@@ -607,7 +607,10 @@ menu_http_linux() {
 mostrar_acceso_servicio() {
   local servicio="$1"
   local puerto="$2"
-  local ip; ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  # Priorizar IP del adaptador Host-Only (192.168.x.x) para red interna
+  local ip; ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^192\.168\.' | head -1)
+  [[ -z "$ip" ]] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+
   echo -e "\n${BOLD}${CYAN}══════════════════════════════════════════${NC}"
   echo -e "  ${GREEN}${BOLD}✓ ${servicio} listo${NC}"
   echo -e "  Acceso local:  ${CYAN}http://localhost:${puerto}${NC}"
@@ -622,7 +625,9 @@ mostrar_acceso_servicio() {
 
 estado_servicios_http() {
   banner "ESTADO SERVICIOS HTTP"
-  local ip; ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  # Priorizar IP del adaptador Host-Only (192.168.x.x) para red interna
+  local ip; ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^192\.168\.' | head -1)
+  [[ -z "$ip" ]] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 
   # Estado de cada servicio con puerto detectado
   local servicios=( apache2 nginx tomcat )
@@ -632,14 +637,15 @@ estado_servicios_http() {
       local pid; pid=$(systemctl show -p MainPID "$svc" 2>/dev/null | cut -d= -f2)
       local puerto_real=""
       if [[ -n "$pid" && "$pid" != "0" ]]; then
-        puerto_real=$(ss -tlnp 2>/dev/null | grep "pid=${pid}" | awk '{print $4}' | grep -oP ':\K[0-9]+$' | head -1)
+        # Obtener puertos escuchando, filtrando el puerto de control/shutdown de Tomcat (8005)
+        puerto_real=$(ss -tlnp 2>/dev/null | grep "pid=${pid}" | awk '{print $4}' | grep -oP ':\K[0-9]+$' | grep -v '^8005$' | head -1)
       fi
       # Fallback: buscar en la config
       if [[ -z "$puerto_real" ]]; then
         case "$svc" in
           apache2) puerto_real=$(grep -m1 '^Listen' /etc/apache2/ports.conf 2>/dev/null | awk '{print $2}') ;;
           nginx)   puerto_real=$(grep -m1 'listen' /etc/nginx/sites-enabled/default 2>/dev/null | grep -oP '[0-9]+') ;;
-          tomcat)  puerto_real=$(grep -oP 'port="\K[0-9]+' /opt/tomcat/conf/server.xml 2>/dev/null | head -1) ;;
+          tomcat)  puerto_real=$(grep -oP '<Connector[^>]*port="\K[0-9]+' /opt/tomcat/conf/server.xml 2>/dev/null | head -1) ;;
         esac
       fi
       local url=""
