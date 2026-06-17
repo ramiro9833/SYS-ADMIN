@@ -489,7 +489,31 @@ instalar_tomcat() {
   chmod 755 "${TOMCAT_BASE}/webapps"
 
   # Detectar JAVA_HOME dinámicamente
-  local java_home; java_home=$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")
+  local java_home=""
+  if command -v java &>/dev/null; then
+    java_home=$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")
+  else
+    # Buscar una instalación típica si existe en directorios estándar
+    local posibles_paths=(
+      "/usr/lib/jvm/java-17-openjdk-amd64"
+      "/usr/lib/jvm/java-11-openjdk-amd64"
+      "/usr/lib/jvm/default-java"
+    )
+    for path in "${posibles_paths[@]}"; do
+      if [[ -d "$path" ]]; then
+        java_home="$path"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$java_home" ]]; then
+    echo -e "${RED}[ERROR] No se detectó Java (JRE/JDK) instalado en el sistema.${NC}"
+    echo -e "${YELLOW}[INFO] Para instalar Tomcat de manera offline, primero debes tener Java.${NC}"
+    echo -e "       Instala el paquete localmente ejecutando en el servidor con internet o descarga"
+    echo -e "       el paquete .deb de Java (openjdk-17-jre-headless) y colócalo en tu carpeta compartida.${NC}"
+    return 1
+  fi
 
   # Configurar puerto en server.xml
   sed -i "s/port=\"8080\"/port=\"${puerto}\"/" "${TOMCAT_BASE}/conf/server.xml"
