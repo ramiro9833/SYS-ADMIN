@@ -180,14 +180,17 @@ configurar_firewall_linux() {
   if ! command -v ufw &>/dev/null; then
     apt-get install -y -qq ufw
   fi
+  # Asegurar que el puerto SSH (22) siempre esté permitido antes de activar UFW
+  ufw allow 22/tcp comment "SSH-Secure" 2>/dev/null
   ufw allow "${puerto}/tcp" comment "HTTP-${servicio}-${puerto}" 2>/dev/null
-  # Cerrar puerto 80/443 si el nuevo puerto es diferente
+  
+  # Cerrar puerto 80 si el nuevo puerto es diferente
   if (( puerto != 80 )); then
     ufw delete allow 80/tcp 2>/dev/null || true
     echo -e "${YELLOW}[INFO] Puerto 80 cerrado (no se usa).${NC}"
   fi
   ufw --force enable 2>/dev/null
-  echo -e "${GREEN}[OK] Firewall: puerto ${puerto}/tcp habilitado.${NC}"
+  echo -e "${GREEN}[OK] Firewall: puerto ${puerto}/tcp y puerto SSH (22) habilitados.${NC}"
 }
 
 # ─── Verificar si el servicio ya existe y preguntar qué hacer ─────────────────
