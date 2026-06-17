@@ -7,17 +7,24 @@ $ErrorActionPreference = "Continue"
 
 # Localizar librería en drives montados
 $libDir = $null
-foreach ($drive in @("7:","D:","Z:","C:")) {
-    $candidate = "$drive\SYS-ADMIN\lib\powershell"
-    if (Test-Path "$candidate\Comunes.ps1") { $libDir = $candidate; break }
+foreach ($drive in @("Z:","D:","C:")) {
+    foreach ($subPath in @("lib\powershell", "SYS-ADMIN\lib\powershell")) {
+        $candidate = Join-Path $drive $subPath
+        if (Test-Path (Join-Path $candidate "Comunes.ps1")) {
+            $libDir = $candidate
+            break
+        }
+    }
+    if ($libDir) { break }
 }
 if (-not $libDir) {
     $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    $libDir    = Join-Path $scriptDir "..\lib\powershell"
+    # Forzar resolución limpia para evitar "Desktop..\lib"
+    $libDir = [System.IO.Path]::GetFullPath((Join-Path $scriptDir "..\lib\powershell"))
 }
 
-. "$libDir\Comunes.ps1"
-. "$libDir\HTTP.ps1"
+. (Join-Path $libDir "Comunes.ps1")
+. (Join-Path $libDir "HTTP.ps1")
 
 Verificar-Admin
 
