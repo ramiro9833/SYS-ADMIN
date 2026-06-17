@@ -175,6 +175,7 @@ function Crear-Usuario-Servicio-Win {
 # ─── Configurar firewall Windows ──────────────────────────────────────────────
 function Configurar-Firewall-Win {
     param([int]$Puerto, [string]$Servicio)
+    # Asegurar que el puerto de administración de red (RDP / WinRM / SSH) no se toque.
     # Eliminar regla si ya existe con ese nombre
     Remove-NetFirewallRule -DisplayName "HTTP-$Servicio-Custom" -ErrorAction SilentlyContinue
     New-NetFirewallRule -DisplayName "HTTP-$Servicio-Custom" `
@@ -190,11 +191,99 @@ function Configurar-Firewall-Win {
     Write-Host "[OK] Firewall: regla creada para puerto $Puerto TCP (Inbound)." -ForegroundColor Green
 }
 
+# ─── Verificar si el servicio ya existe y preguntar qué hacer (Windows) ─────────
+function Verifico-Previo-Y-Pregunto-Win {
+    param(
+        [string]$Servicio,  # "W3SVC", "Apache2.4", o "nginx" (proceso)
+        [string]$ChocoPkg   # "apache-httpd", "nginx", o ""
+    )
+
+    $activo = $false
+    $instalado = $false
+
+    if ($Servicio -eq "nginx") {
+        $proc = Get-Process -Name "nginx" -ErrorAction SilentlyContinue
+        if ($proc) { $activo = $true; $instalado = $true }
+        elseif (Test-Path "C:\nginx" -or (Get-Command nginx -ErrorAction SilentlyContinue)) { $instalado = $true }
+    } else {
+        $svc = Get-Service -Name $Servicio -ErrorAction SilentlyContinue
+        if ($svc) {
+            $instalado = $true
+            if ($svc.Status -eq "Running") { $activo = $true }
+        }
+    }
+
+    if (-not $activo -and -not $instalado) {
+        return $true # proceder con instalación normal
+    }
+
+    Write-Host "`n[!] $Servicio ya esta instalado en este servidor." -ForegroundColor Yellow
+    if ($activo) {
+        Write-Host "    Estado: ACTIVO" -ForegroundColor Green
+    } else {
+        Write-Host "    Estado: INACTIVO" -ForegroundColor Red
+    }
+    Write-Host ""
+    Write-Host "  1) Mantener el actual y solo cambiar configuracion (puerto/version)"
+    Write-Host "  2) Desinstalar completamente y volver a instalar desde cero"
+    Write-Host "  3) Cancelar (volver al menu)"
+    Write-Host ""
+
+    while ($true) {
+        $opc = Read-Host "¿Que deseas hacer? (1/2/3)"
+        switch ($opc) {
+            "1" { return $true }
+            "2" {
+                Write-Host "[INFO] Desinstalando $Servicio..." -ForegroundColor Yellow
+                if ($Servicio -eq "W3SVC") {
+                    # Desinstalar IIS
+                    $features = @("Web-Server","Web-Common-Http","Web-Default-Doc","Web-Static-Content","Web-Mgmt-Console")
+                    foreach ($f in $features) {
+                        if ((Get-WindowsFeature -Name $f).Installed) {
+                            Uninstall-WindowsFeature -Name $f -ErrorAction SilentlyContinue | Out-Null
+                        }
+                    }
+                    if (Test-Path $IIS_WWWROOT) {
+                        Remove-Item -Path $IIS_WWWROOT -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                } elseif ($Servicio -eq "Apache2.4") {
+                    Stop-Service -Name "Apache2.4" -ErrorAction SilentlyContinue
+                    $apacheBase = @("C:\Apache24","C:\tools\Apache24","$env:PROGRAMFILES\Apache24") | Where-Object { Test-Path "$_\bin\httpd.exe" } | Select-Object -First 1
+                    if ($apacheBase) {
+                        & "$apacheBase\bin\httpd.exe" -k uninstall 2>$null | Out-Null
+                    }
+                    choco uninstall apache-httpd -y -f --no-progress 2>$null
+                    foreach ($dir in @("C:\Apache24","C:\tools\Apache24")) {
+                        if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+                    }
+                } elseif ($Servicio -eq "nginx") {
+                    Stop-Process -Name "nginx" -Force -ErrorAction SilentlyContinue
+                    choco uninstall nginx -y -f --no-progress 2>$null
+                    foreach ($dir in @("C:\nginx","C:\tools\nginx")) {
+                        if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+                    }
+                }
+                Write-Host "[OK] $Servicio desinstalado. Procediendo con instalacion limpia." -ForegroundColor Green
+                return $true
+            }
+            "3" {
+                Write-Host "Cancelado." -ForegroundColor Yellow
+                return $false
+            }
+            default {
+                Write-Host "[ERROR] Opcion invalida (1, 2 o 3)." -ForegroundColor Red
+            }
+        }
+    }
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # IIS
 # ═══════════════════════════════════════════════════════════════════════════════
 function Instalar-IIS {
     param([string]$Version, [int]$Puerto)
+    if (-not (Verifico-Previo-Y-Pregunto-Win -Servicio "W3SVC" -ChocoPkg "")) { return }
+    
     Write-Host "`n[INFO] Instalando IIS en puerto $Puerto..." -ForegroundColor Yellow
 
     # Instalar características IIS
@@ -284,6 +373,8 @@ function Aplicar-Hardening-IIS {
 # ═══════════════════════════════════════════════════════════════════════════════
 function Instalar-Apache-Win {
     param([string]$Version, [int]$Puerto)
+    if (-not (Verifico-Previo-Y-Pregunto-Win -Servicio "Apache2.4" -ChocoPkg "apache-httpd")) { return }
+    
     Asegurar-Chocolatey
     Write-Host "`n[INFO] Instalando Apache $Version en puerto $Puerto (Chocolatey)..." -ForegroundColor Yellow
     choco install $CHOCO_APACHE_ID --version=$Version -y --no-progress 2>$null
@@ -335,6 +426,8 @@ Header always set X-XSS-Protection "1; mode=block"
 # ═══════════════════════════════════════════════════════════════════════════════
 function Instalar-Nginx-Win {
     param([string]$Version, [int]$Puerto)
+    if (-not (Verifico-Previo-Y-Pregunto-Win -Servicio "nginx" -ChocoPkg "nginx")) { return }
+
     Asegurar-Chocolatey
     Write-Host "`n[INFO] Instalando Nginx $Version en puerto $Puerto (Chocolatey)..." -ForegroundColor Yellow
     choco install $CHOCO_NGINX_ID --version=$Version -y --no-progress 2>$null
@@ -392,18 +485,91 @@ function Estado-Servicios-HTTP-Win {
     Write-Host "`n=============================" -ForegroundColor Blue
     Write-Host "  ESTADO SERVICIOS HTTP WIN  " -ForegroundColor Blue
     Write-Host "=============================" -ForegroundColor Blue
-    $servicios = @("W3SVC","Apache2.4","nginx")
-    foreach ($s in $servicios) {
-        $svc = Get-Service -Name $s -ErrorAction SilentlyContinue
-        if ($svc) {
-            $col = if ($svc.Status -eq "Running") { "Green" } else { "Red" }
-            Write-Host "  [$($svc.Status.ToString().ToUpper())] $s" -ForegroundColor $col
+
+    # Priorizar IP del adaptador Host-Only (192.168.x.x) para red interna
+    $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "192.168.*" } | Select-Object -First 1).IPAddress
+    if (-not $ip) {
+        $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1).IPAddress
+    }
+    if (-not $ip) { $ip = "127.0.0.1" }
+
+    $serviciosInfo = @(
+        @{ SvcName = "W3SVC"; DispName = "IIS"; ProcessName = "w3wp" }
+        @{ SvcName = "Apache2.4"; DispName = "Apache"; ProcessName = "httpd" }
+        @{ SvcName = "nginx"; DispName = "Nginx"; ProcessName = "nginx" }
+    )
+
+    foreach ($item in $serviciosInfo) {
+        $status = "INACTIVO"
+        $puertoReal = "?"
+        $url = ""
+
+        if ($item.SvcName -eq "nginx") {
+            $procs = Get-Process -Name $item.ProcessName -ErrorAction SilentlyContinue
+            if ($procs) {
+                $status = "ACTIVO"
+                $pids = $procs.Id
+                $conn = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $pids -contains $_.OwningProcess } | Select-Object -First 1
+                if ($conn) { $puertoReal = $conn.LocalPort }
+            }
         } else {
-            Write-Host "  [NO INSTALADO] $s" -ForegroundColor Yellow
+            $svc = Get-Service -Name $item.SvcName -ErrorAction SilentlyContinue
+            if ($svc) {
+                if ($svc.Status -eq "Running") {
+                    $status = "ACTIVO"
+                    if ($item.SvcName -eq "W3SVC") {
+                        Import-Module WebAdministration -ErrorAction SilentlyContinue
+                        $binding = Get-WebBinding -Name "Default Web Site" -ErrorAction SilentlyContinue
+                        if ($binding) { $puertoReal = $binding.bindingInformation.Split(':')[-2] }
+                    } else {
+                        $procs = Get-Process -Name $item.ProcessName -ErrorAction SilentlyContinue
+                        if ($procs) {
+                            $pids = $procs.Id
+                            $conn = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $pids -contains $_.OwningProcess } | Select-Object -First 1
+                            if ($conn) { $puertoReal = $conn.LocalPort }
+                        }
+                    }
+                }
+            } else {
+                $status = "NO INSTALADO"
+            }
+        }
+
+        $col = if ($status -eq "ACTIVO") { "Green" } elseif ($status -eq "INACTIVO") { "Red" } else { "Yellow" }
+        if ($status -eq "ACTIVO" -and $puertoReal -ne "?") {
+            $url = "  → http://$ip:$puertoReal"
+            Write-Host "  [$status] $($item.DispName) (puerto: $puertoReal)$url" -ForegroundColor $col
+        } else {
+            Write-Host "  [$status] $($item.DispName)" -ForegroundColor $col
         }
     }
-    Write-Host "`nPuertos en escucha (HTTP):"
-    netstat -ano | Select-String ":80|:8080|:8888|:443" | Select-Object -First 10
+
+    Write-Host "`nTodos los puertos HTTP activos:"
+    $puertosActivos = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object {
+        $p = $_.LocalPort
+        $PUERTOS_RESERVADOS -notcontains $p -and $p -ne 0 -and $p -ne 3389 -and $p -ne 5985 -and $p -ne 5986
+    }
+    if (-not $puertosActivos) {
+        Write-Host "  (ningun servicio HTTP detectado)" -ForegroundColor Yellow
+    } else {
+        $printedPorts = @()
+        foreach ($conn in $puertosActivos) {
+            $p = $conn.LocalPort
+            if ($printedPorts -notcontains $p) {
+                $printedPorts += $p
+                $code = "?"
+                try {
+                    $res = Invoke-WebRequest -Uri "http://localhost:$p" -Method Head -TimeoutSec 1 -ErrorAction Stop
+                    $code = [int]$res.StatusCode
+                } catch {
+                    if ($_.Exception.Response) {
+                        $code = [int]$_.Exception.Response.StatusCode
+                    }
+                }
+                Write-Host "    Puerto $p  →  http://$ip:$p   ($code)" -ForegroundColor Cyan
+            }
+        }
+    }
 }
 
 # ─── Menú principal Windows ───────────────────────────────────────────────────
