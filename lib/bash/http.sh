@@ -80,8 +80,22 @@ consultar_versiones_tomcat() {
   echo -e "${YELLOW}[INFO] Consultando versiones disponibles de Tomcat...${NC}" >&2
   if ! command -v curl &>/dev/null; then apt-get install -y -qq curl; fi
 
-  # Intentar obtener versiones reales desde el mirror de Apache (sin GitHub)
   local vers=()
+
+  # 1. Escanear si hay archivos locales descargados en el sistema
+  local local_files
+  local_files=$(find /tmp /home /mnt/sysadmin "$SCRIPT_DIR" "$(dirname "$SCRIPT_DIR")" -maxdepth 3 -name "apache-tomcat-*.tar.gz" 2>/dev/null)
+  while read -r file; do
+    if [[ -n "$file" ]]; then
+      local filename; filename=$(basename "$file")
+      local ver; ver=$(echo "$filename" | grep -oP 'apache-tomcat-\K[0-9.]+(?=\.tar\.gz)')
+      if [[ -n "$ver" ]]; then
+        vers+=("$ver")
+      fi
+    fi
+  done <<< "$local_files"
+
+  # 2. Intentar obtener versiones reales desde el mirror de Apache
   for major in 10 9; do
     local index_url="https://downloads.apache.org/tomcat/tomcat-${major}/"
     local found
@@ -89,7 +103,6 @@ consultar_versiones_tomcat() {
       | tr -d '\r' \
       | grep -oP "v${major}\.[0-9]+\.[0-9]+" | sort -Vru | head -3)
     while IFS= read -r v; do
-      # Limpiar espacios y retornos adicionales
       v=$(echo "$v" | tr -d '[:space:]')
       if [[ -n "$v" ]]; then
         vers+=("${v#v}")
@@ -97,11 +110,17 @@ consultar_versiones_tomcat() {
     done <<< "$found"
   done
 
-  if [[ ${#vers[@]} -eq 0 ]]; then
-    vers=("10.1.34" "10.1.30" "9.0.104" "9.0.100")
-    echo -e "${YELLOW}[WARN] Sin acceso al mirror. Usando versiones conocidas.${NC}" >&2
+  # 3. Eliminar duplicados y ordenar de mayor a menor
+  local uniq_vers=()
+  if [[ ${#vers[@]} -gt 0 ]]; then
+    mapfile -t uniq_vers < <(printf '%s\n' "${vers[@]}" | sort -Vru)
   fi
-  printf '%s\n' "${vers[@]}"
+
+  if [[ ${#uniq_vers[@]} -eq 0 ]]; then
+    uniq_vers=("10.1.34" "10.1.30" "9.0.104" "9.0.100")
+    echo -e "${YELLOW}[WARN] Sin acceso al mirror ni archivos locales. Usando fallback.${NC}" >&2
+  fi
+  printf '%s\n' "${uniq_vers[@]}"
 }
 
 # ─── Mostrar menú de selección de versión ────────────────────────────────────
