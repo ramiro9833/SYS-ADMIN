@@ -539,7 +539,7 @@ function Estado-Servicios-HTTP-Win {
 
         $col = if ($status -eq "ACTIVO") { "Green" } elseif ($status -eq "INACTIVO") { "Red" } else { "Yellow" }
         if ($status -eq "ACTIVO" -and $puertoReal -ne "?") {
-            $url = "  → http://$ip:$puertoReal"
+            $url = "  → http://${ip}:$puertoReal"
             Write-Host "  [$status] $($item.DispName) (puerto: $puertoReal)$url" -ForegroundColor $col
         } else {
             Write-Host "  [$status] $($item.DispName)" -ForegroundColor $col
@@ -568,7 +568,7 @@ function Estado-Servicios-HTTP-Win {
                         $code = [int]$_.Exception.Response.StatusCode
                     }
                 }
-                Write-Host "    Puerto $p  →  http://$ip:$p   ($code)" -ForegroundColor Cyan
+                Write-Host "    Puerto $p  →  http://${ip}:$p   ($code)" -ForegroundColor Cyan
             }
         }
     }
