@@ -86,9 +86,14 @@ consultar_versiones_tomcat() {
     local index_url="https://downloads.apache.org/tomcat/tomcat-${major}/"
     local found
     found=$(curl -s --max-time 10 "$index_url" 2>/dev/null \
-      | grep -oP "v${major}\.[0-9]+\.[0-9]+" | sort -Vr | head -3)
+      | tr -d '\r' \
+      | grep -oP "v${major}\.[0-9]+\.[0-9]+" | sort -Vru | head -3)
     while IFS= read -r v; do
-      [[ -n "$v" ]] && vers+=("${v#v}")
+      # Limpiar espacios y retornos adicionales
+      v=$(echo "$v" | tr -d '[:space:]')
+      if [[ -n "$v" ]]; then
+        vers+=("${v#v}")
+      fi
     done <<< "$found"
   done
 
