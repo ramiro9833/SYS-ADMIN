@@ -410,7 +410,8 @@ Header always set X-XSS-Protection "1; mode=block"
     }
 
     # Index.html
-    $verReal = (choco list $CHOCO_APACHE_ID --local-only 2>$null | Select-String "$CHOCO_APACHE_ID\s+\d" | ForEach-Object { ($_ -split '\s+')[1] } | Select-Object -First 1) ?? $Version
+    $verReal = (choco list $CHOCO_APACHE_ID --local-only 2>$null | Select-String "$CHOCO_APACHE_ID\s+\d" | ForEach-Object { ($_ -split '\s+')[1] } | Select-Object -First 1)
+    if (-not $verReal) { $verReal = $Version }
     Crear-Index-Html-Win -RootDir "$apacheBase\htdocs" -Servicio "Apache-Win64" -Version $verReal -Puerto $Puerto
 
     # Instalar como servicio Windows
@@ -468,7 +469,8 @@ http {
 }
 "@ | Set-Content "$nginxBase\conf\nginx.conf"
 
-    $verReal = (choco list $CHOCO_NGINX_ID --local-only 2>$null | Select-String "nginx\s+\d" | ForEach-Object { ($_ -split '\s+')[1] } | Select-Object -First 1) ?? $Version
+    $verReal = (choco list $CHOCO_NGINX_ID --local-only 2>$null | Select-String "nginx\s+\d" | ForEach-Object { ($_ -split '\s+')[1] } | Select-Object -First 1)
+    if (-not $verReal) { $verReal = $Version }
     Crear-Index-Html-Win -RootDir "$nginxBase\html" -Servicio "Nginx-Win" -Version $verReal -Puerto $Puerto
 
     # Iniciar Nginx
