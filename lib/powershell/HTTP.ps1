@@ -134,7 +134,7 @@ function Crear-Index-Html-Win {
 </head>
 <body>
   <div class="card">
-    <h1>🌐 $Servicio</h1>
+    <h1>&#x1f310; $Servicio</h1>
     <div>Servidor: <span class="badge">$Servicio</span></div>
     <div>Version: <span class="badge">$Version</span></div>
     <div>Puerto: <span class="badge">$Puerto</span></div>
@@ -403,6 +403,12 @@ function Instalar-Apache-Win {
     param([string]$Version, [int]$Puerto)
     if (-not (Verifico-Previo-Y-Pregunto-Win -Servicio "Apache" -ChocoPkg "apache-httpd")) { return }
     
+    # Asegurar VC++ Redistributable (requerido para ejecutar httpd.exe)
+    if (-not (Test-Path "C:\Windows\System32\vcruntime140.dll")) {
+        Write-Host "[INFO] No se detecto VC++ Redistributable. Instalando vcredist140..." -ForegroundColor Yellow
+        choco install vcredist140 -y --no-progress
+    }
+
     Asegurar-Chocolatey
     Write-Host "`n[INFO] Instalando Apache $Version en puerto $Puerto (Chocolatey)..." -ForegroundColor Yellow
     # Se agrega --force y se quita la redirección a nulo para ver el error real si falla
@@ -452,7 +458,8 @@ Header always set X-XSS-Protection "1; mode=block"
     Stop-Service -Name $nombreSvcReal -ErrorAction SilentlyContinue
 
     # Instalar como servicio Windows e iniciar
-    & "$apacheBase\bin\httpd.exe" -k install 2>$null | Out-Null
+    Write-Host "[INFO] Registrando Apache como servicio de Windows..." -ForegroundColor Yellow
+    & "$apacheBase\bin\httpd.exe" -k install
     Start-Service $nombreSvcReal -ErrorAction SilentlyContinue
 
     Configurar-Firewall-Win -Puerto $Puerto -Servicio "Apache-Win"
