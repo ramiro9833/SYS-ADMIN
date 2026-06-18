@@ -267,9 +267,9 @@ function Verifico-Previo-Y-Pregunto-Win {
                     }
                 } elseif ($Servicio -like "*Apache*") {
                     Stop-Service -Name $nombreSvcReal -ErrorAction SilentlyContinue
-                    $apacheBase = @("C:\Apache24","C:\tools\Apache24","$env:PROGRAMFILES\Apache24") | Where-Object { Test-Path "$_\bin\httpd.exe" } | Select-Object -First 1
+                    $apacheBase = @("C:\Apache24","C:\tools\Apache24","$env:PROGRAMFILES\Apache24","$env:APPDATA\Apache24") | Where-Object { Test-Path "$_\bin\httpd.exe" } | Select-Object -First 1
                     if (-not $apacheBase) {
-                        $found = Get-ChildItem -Path "C:\tools", "C:\" -Filter "httpd.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                        $found = Get-ChildItem -Path "C:\tools", "C:\", $env:USERPROFILE -Filter "httpd.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
                         if ($found) { $apacheBase = $found.Directory.Parent.FullName }
                     }
                     if ($apacheBase) {
@@ -284,7 +284,7 @@ function Verifico-Previo-Y-Pregunto-Win {
                     choco uninstall nginx -y -f --no-progress 2>$null
                     $nginxBase = @("C:\nginx","C:\tools\nginx","$env:PROGRAMFILES\nginx") | Where-Object { Test-Path "$_\nginx.exe" } | Select-Object -First 1
                     if (-not $nginxBase) {
-                        $found = Get-ChildItem -Path "C:\tools", "C:\" -Filter "nginx.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                        $found = Get-ChildItem -Path "C:\tools", "C:\", $env:USERPROFILE -Filter "nginx.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
                         if ($found) { $nginxBase = $found.Directory.FullName }
                     }
                     if ($nginxBase -and (Test-Path $nginxBase)) {
@@ -417,20 +417,20 @@ function Instalar-Apache-Win {
         choco install $CHOCO_APACHE_ID -y --force --no-progress
     }
 
-    # Localizar httpd.conf (Detección estática y dinámica)
-    $apacheBase = @("C:\Apache24","C:\tools\Apache24","$env:PROGRAMFILES\Apache24") | Where-Object { Test-Path "$_\conf\httpd.conf" } | Select-Object -First 1
+    # Localizar httpd.conf (Detección estática y dinámica, incluyendo AppData/User Profile)
+    $apacheBase = @("C:\Apache24","C:\tools\Apache24","$env:PROGRAMFILES\Apache24","$env:APPDATA\Apache24") | Where-Object { Test-Path "$_\conf\httpd.conf" } | Select-Object -First 1
     if (-not $apacheBase) {
-        $found = Get-ChildItem -Path "C:\tools", "C:\" -Filter "httpd.conf" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        $found = Get-ChildItem -Path "C:\tools", "C:\", $env:USERPROFILE -Filter "httpd.conf" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($found) { $apacheBase = $found.Directory.Parent.FullName }
     }
     if (-not $apacheBase) {
         Write-Host "[ERROR] No se encontro httpd.conf de Apache." -ForegroundColor Red; return
     }
 
-    # Cambiar puerto
-    (Get-Content "$apacheBase\conf\httpd.conf") -replace "Listen \d+", "Listen $Puerto" |
+    # Cambiar puerto de escucha de forma segura (solo líneas activas sin comentarios)
+    (Get-Content "$apacheBase\conf\httpd.conf") -replace '^\s*Listen\s+\d+', "Listen $Puerto" |
         Set-Content "$apacheBase\conf\httpd.conf"
-    (Get-Content "$apacheBase\conf\httpd.conf") -replace "ServerTokens Full","ServerTokens Prod" |
+    (Get-Content "$apacheBase\conf\httpd.conf") -replace 'ServerTokens Full','ServerTokens Prod' |
         Set-Content "$apacheBase\conf\httpd.conf"
 
     # Hardening
@@ -486,7 +486,7 @@ function Instalar-Nginx-Win {
     # Localizar nginx.conf de forma dinámica si no está en rutas estándar
     $nginxBase = @("C:\nginx","C:\tools\nginx","$env:PROGRAMFILES\nginx") | Where-Object { Test-Path "$_\conf\nginx.conf" } | Select-Object -First 1
     if (-not $nginxBase) {
-        $found = Get-ChildItem -Path "C:\tools", "C:\" -Filter "nginx.conf" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        $found = Get-ChildItem -Path "C:\tools", "C:\", $env:USERPROFILE -Filter "nginx.conf" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($found) { $nginxBase = $found.Directory.Parent.FullName }
     }
     if (-not $nginxBase) {
