@@ -18,3 +18,21 @@ Thumbs.db
 # Archivos de configuración con datos sensibles
 **/*.leases
 **/*.log
+
+# Instaladores y binarios grandes (no se suben al repositorio)
+*.tar.gz
+*.zip
+*.deb
+*.msi
+*.exe
+*.rpm
+*.rar
+*.7z
+
+# Carpetas extraídas temporalmente o de dependencias
+apache-tomcat-*/
+
+# Archivos de depuración y notas personales
+xd.txt
+temp*
+debug*
