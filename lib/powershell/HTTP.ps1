@@ -154,8 +154,13 @@ function Crear-Usuario-Servicio-Win {
     $existente = Get-LocalUser -Name $Usuario -ErrorAction SilentlyContinue
     if (-not $existente) {
         $pwd = ConvertTo-SecureString "Svc$(Get-Random -Max 9999)!Http" -AsPlainText -Force
+        # Modificado para sintaxis compatible con PowerShell 5.1
         New-LocalUser -Name $Usuario -Password $pwd -Description "Cuenta de servicio HTTP" `
-            -PasswordNeverExpires $true -UserMayNotChangePassword $true -AccountNeverExpires | Out-Null
+            -PasswordNeverExpires -AccountNeverExpires | Out-Null
+        
+        # Aplicar que no pueda cambiar contraseña
+        net user $Usuario /passwordchg:no 2>$null | Out-Null
+        
         # Quitar del grupo Users para minimizar permisos
         Remove-LocalGroupMember -Group "Users" -Member $Usuario -ErrorAction SilentlyContinue
         Write-Host "[OK] Usuario de servicio '$Usuario' creado con permisos limitados." -ForegroundColor Green
@@ -163,13 +168,17 @@ function Crear-Usuario-Servicio-Win {
         Write-Host "[INFO] Usuario '$Usuario' ya existe." -ForegroundColor Yellow
     }
     # Restringir NTFS: solo acceso al directorio del servicio
-    $acl = Get-Acl $DirectorioLimitado
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        $Usuario, "ReadAndExecute,Write", "ContainerInherit,ObjectInherit", "None", "Allow"
-    )
-    $acl.AddAccessRule($rule)
-    Set-Acl -Path $DirectorioLimitado -AclObject $acl
-    Write-Host "[OK] Permisos NTFS restringidos para '$Usuario' en $DirectorioLimitado." -ForegroundColor Green
+    try {
+        $acl = Get-Acl $DirectorioLimitado
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $Usuario, "ReadAndExecute,Write", "ContainerInherit,ObjectInherit", "None", "Allow"
+        )
+        $acl.AddAccessRule($rule)
+        Set-Acl -Path $DirectorioLimitado -AclObject $acl
+        Write-Host "[OK] Permisos NTFS restringidos para '$Usuario' en $DirectorioLimitado." -ForegroundColor Green
+    } catch {
+        Write-Host "[WARN] No se pudo configurar el ACL NTFS para '$Usuario' en $DirectorioLimitado. Asegurese de que el directorio existe." -ForegroundColor Yellow
+    }
 }
 
 # ─── Configurar firewall Windows ──────────────────────────────────────────────
@@ -191,6 +200,14 @@ function Configurar-Firewall-Win {
     Write-Host "[OK] Firewall: regla creada para puerto $Puerto TCP (Inbound)." -ForegroundColor Green
 }
 
+# ─── Obtener Nombre de Servicio Real (Apache/Nginx/etc) ──────────────────────
+function Obtener-Servicio-Real-Win {
+    param([string]$Patron, [string]$Fallback)
+    $svc = Get-Service | Where-Object { $_.Name -like "*$Patron*" -or $_.DisplayName -like "*$Patron*" } | Select-Object -First 1
+    if ($svc) { return $svc.Name }
+    return $Fallback
+}
+
 # ─── Verificar si el servicio ya existe y preguntar qué hacer (Windows) ─────────
 function Verifico-Previo-Y-Pregunto-Win {
     param(
@@ -200,13 +217,15 @@ function Verifico-Previo-Y-Pregunto-Win {
 
     $activo = $false
     $instalado = $false
+    $nombreSvcReal = $Servicio
 
     if ($Servicio -eq "nginx") {
         $proc = Get-Process -Name "nginx" -ErrorAction SilentlyContinue
         if ($proc) { $activo = $true; $instalado = $true }
         elseif (Test-Path "C:\nginx" -or (Get-Command nginx -ErrorAction SilentlyContinue)) { $instalado = $true }
     } else {
-        $svc = Get-Service -Name $Servicio -ErrorAction SilentlyContinue
+        $nombreSvcReal = Obtener-Servicio-Real-Win -Patron $Servicio -Fallback $Servicio
+        $svc = Get-Service -Name $nombreSvcReal -ErrorAction SilentlyContinue
         if ($svc) {
             $instalado = $true
             if ($svc.Status -eq "Running") { $activo = $true }
@@ -246,21 +265,30 @@ function Verifico-Previo-Y-Pregunto-Win {
                     if (Test-Path $IIS_WWWROOT) {
                         Remove-Item -Path $IIS_WWWROOT -Recurse -Force -ErrorAction SilentlyContinue
                     }
-                } elseif ($Servicio -eq "Apache2.4") {
-                    Stop-Service -Name "Apache2.4" -ErrorAction SilentlyContinue
+                } elseif ($Servicio -like "*Apache*") {
+                    Stop-Service -Name $nombreSvcReal -ErrorAction SilentlyContinue
                     $apacheBase = @("C:\Apache24","C:\tools\Apache24","$env:PROGRAMFILES\Apache24") | Where-Object { Test-Path "$_\bin\httpd.exe" } | Select-Object -First 1
+                    if (-not $apacheBase) {
+                        $found = Get-ChildItem -Path "C:\tools", "C:\" -Filter "httpd.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($found) { $apacheBase = $found.Directory.Parent.FullName }
+                    }
                     if ($apacheBase) {
                         & "$apacheBase\bin\httpd.exe" -k uninstall 2>$null | Out-Null
                     }
                     choco uninstall apache-httpd -y -f --no-progress 2>$null
-                    foreach ($dir in @("C:\Apache24","C:\tools\Apache24")) {
-                        if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+                    if ($apacheBase -and (Test-Path $apacheBase)) {
+                        Remove-Item -Path $apacheBase -Recurse -Force -ErrorAction SilentlyContinue
                     }
                 } elseif ($Servicio -eq "nginx") {
                     Stop-Process -Name "nginx" -Force -ErrorAction SilentlyContinue
                     choco uninstall nginx -y -f --no-progress 2>$null
-                    foreach ($dir in @("C:\nginx","C:\tools\nginx")) {
-                        if (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+                    $nginxBase = @("C:\nginx","C:\tools\nginx","$env:PROGRAMFILES\nginx") | Where-Object { Test-Path "$_\nginx.exe" } | Select-Object -First 1
+                    if (-not $nginxBase) {
+                        $found = Get-ChildItem -Path "C:\tools", "C:\" -Filter "nginx.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($found) { $nginxBase = $found.Directory.FullName }
+                    }
+                    if ($nginxBase -and (Test-Path $nginxBase)) {
+                        Remove-Item -Path $nginxBase -Recurse -Force -ErrorAction SilentlyContinue
                     }
                 }
                 Write-Host "[OK] $Servicio desinstalado. Procediendo con instalacion limpia." -ForegroundColor Green
@@ -373,17 +401,22 @@ function Aplicar-Hardening-IIS {
 # ═══════════════════════════════════════════════════════════════════════════════
 function Instalar-Apache-Win {
     param([string]$Version, [int]$Puerto)
-    if (-not (Verifico-Previo-Y-Pregunto-Win -Servicio "Apache2.4" -ChocoPkg "apache-httpd")) { return }
+    if (-not (Verifico-Previo-Y-Pregunto-Win -Servicio "Apache" -ChocoPkg "apache-httpd")) { return }
     
     Asegurar-Chocolatey
     Write-Host "`n[INFO] Instalando Apache $Version en puerto $Puerto (Chocolatey)..." -ForegroundColor Yellow
-    choco install $CHOCO_APACHE_ID --version=$Version -y --no-progress 2>$null
+    # Se agrega --force y se quita la redirección a nulo para ver el error real si falla
+    choco install $CHOCO_APACHE_ID --version=$Version -y --force --no-progress
     if ($LASTEXITCODE -ne 0) {
-        choco install $CHOCO_APACHE_ID -y --no-progress 2>$null
+        choco install $CHOCO_APACHE_ID -y --force --no-progress
     }
 
-    # Localizar httpd.conf
+    # Localizar httpd.conf (Detección estática y dinámica)
     $apacheBase = @("C:\Apache24","C:\tools\Apache24","$env:PROGRAMFILES\Apache24") | Where-Object { Test-Path "$_\conf\httpd.conf" } | Select-Object -First 1
+    if (-not $apacheBase) {
+        $found = Get-ChildItem -Path "C:\tools", "C:\" -Filter "httpd.conf" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $apacheBase = $found.Directory.Parent.FullName }
+    }
     if (-not $apacheBase) {
         Write-Host "[ERROR] No se encontro httpd.conf de Apache." -ForegroundColor Red; return
     }
@@ -414,9 +447,13 @@ Header always set X-XSS-Protection "1; mode=block"
     if (-not $verReal) { $verReal = $Version }
     Crear-Index-Html-Win -RootDir "$apacheBase\htdocs" -Servicio "Apache-Win64" -Version $verReal -Puerto $Puerto
 
-    # Instalar como servicio Windows
+    # Parar servicio anterior de apache si existiera
+    $nombreSvcReal = Obtener-Servicio-Real-Win -Patron "Apache" -Fallback "Apache2.4"
+    Stop-Service -Name $nombreSvcReal -ErrorAction SilentlyContinue
+
+    # Instalar como servicio Windows e iniciar
     & "$apacheBase\bin\httpd.exe" -k install 2>$null | Out-Null
-    Start-Service Apache2.4 -ErrorAction SilentlyContinue
+    Start-Service $nombreSvcReal -ErrorAction SilentlyContinue
 
     Configurar-Firewall-Win -Puerto $Puerto -Servicio "Apache-Win"
     Write-Host "[OK] Apache Windows desplegado en puerto $Puerto" -ForegroundColor Green
@@ -429,14 +466,22 @@ function Instalar-Nginx-Win {
     param([string]$Version, [int]$Puerto)
     if (-not (Verifico-Previo-Y-Pregunto-Win -Servicio "nginx" -ChocoPkg "nginx")) { return }
 
+    # Parar procesos anteriores de nginx para que no bloquen el puerto 80 ni la instalación
+    Stop-Process -Name "nginx" -Force -ErrorAction SilentlyContinue
+
     Asegurar-Chocolatey
     Write-Host "`n[INFO] Instalando Nginx $Version en puerto $Puerto (Chocolatey)..." -ForegroundColor Yellow
-    choco install $CHOCO_NGINX_ID --version=$Version -y --no-progress 2>$null
+    choco install $CHOCO_NGINX_ID --version=$Version -y --force --no-progress
     if ($LASTEXITCODE -ne 0) {
-        choco install $CHOCO_NGINX_ID -y --no-progress 2>$null
+        choco install $CHOCO_NGINX_ID -y --force --no-progress
     }
 
+    # Localizar nginx.conf de forma dinámica si no está en rutas estándar
     $nginxBase = @("C:\nginx","C:\tools\nginx","$env:PROGRAMFILES\nginx") | Where-Object { Test-Path "$_\conf\nginx.conf" } | Select-Object -First 1
+    if (-not $nginxBase) {
+        $found = Get-ChildItem -Path "C:\tools", "C:\" -Filter "nginx.conf" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $nginxBase = $found.Directory.Parent.FullName }
+    }
     if (-not $nginxBase) {
         Write-Host "[ERROR] No se encontro nginx.conf." -ForegroundColor Red; return
     }
@@ -495,10 +540,14 @@ function Estado-Servicios-HTTP-Win {
     }
     if (-not $ip) { $ip = "127.0.0.1" }
 
+    # Buscar nombres dinámicos de los servicios instalados para Apache y Nginx
+    $apacheSvcName = Obtener-Servicio-Real-Win -Patron "Apache" -Fallback "Apache2.4"
+    $nginxSvcName = Obtener-Servicio-Real-Win -Patron "nginx" -Fallback "nginx"
+
     $serviciosInfo = @(
         @{ SvcName = "W3SVC"; DispName = "IIS"; ProcessName = "w3wp" }
-        @{ SvcName = "Apache2.4"; DispName = "Apache"; ProcessName = "httpd" }
-        @{ SvcName = "nginx"; DispName = "Nginx"; ProcessName = "nginx" }
+        @{ SvcName = $apacheSvcName; DispName = "Apache"; ProcessName = "httpd" }
+        @{ SvcName = $nginxSvcName; DispName = "Nginx"; ProcessName = "nginx" }
     )
 
     foreach ($item in $serviciosInfo) {
@@ -506,13 +555,22 @@ function Estado-Servicios-HTTP-Win {
         $puertoReal = "?"
         $url = ""
 
-        if ($item.SvcName -eq "nginx") {
+        if ($item.DispName -eq "Nginx") {
+            # Nginx puede correr como proceso o servicio
             $procs = Get-Process -Name $item.ProcessName -ErrorAction SilentlyContinue
-            if ($procs) {
+            $svc = Get-Service -Name $item.SvcName -ErrorAction SilentlyContinue
+            if ($procs -or ($svc -and $svc.Status -eq "Running")) {
                 $status = "ACTIVO"
-                $pids = $procs.Id
-                $conn = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $pids -contains $_.OwningProcess } | Select-Object -First 1
-                if ($conn) { $puertoReal = $conn.LocalPort }
+                # Detectar puerto real de escucha por proceso
+                if ($procs) {
+                    $pids = $procs.Id
+                    $conn = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $pids -contains $_.OwningProcess } | Select-Object -First 1
+                    if ($conn) { $puertoReal = $conn.LocalPort }
+                }
+            } elseif ($svc) {
+                $status = "INACTIVO"
+            } else {
+                $status = "NO INSTALADO"
             }
         } else {
             $svc = Get-Service -Name $item.SvcName -ErrorAction SilentlyContinue
