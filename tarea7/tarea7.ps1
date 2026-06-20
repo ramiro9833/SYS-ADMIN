@@ -1,10 +1,10 @@
-# tarea7/tarea7.ps1 - Orquestador de Despliegue Seguro e Instalación Híbrida Windows
+# tarea7/tarea7.ps1 - Orquestador de Despliegue Seguro e Instalacion Hibrida Windows
 
 # Obtener directorio del script
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $libDir = [System.IO.Path]::GetFullPath((Join-Path $scriptDir "..\lib\powershell"))
 
-# Cargar librerías
+# Cargar librerias
 . (Join-Path $libDir "Comunes.ps1")
 . (Join-Path $libDir "HTTP.ps1")
 . (Join-Path $libDir "FTPClient.ps1")
@@ -18,11 +18,11 @@ function Mostrar-Banner-Win {
     Write-Host "=================================================================="
     Write-Host "  ORQUESTADOR DE INFRAESTRUCTURA DE DESPLIEGUE SEGURO (TAREA 7)  "
     Write-Host "=================================================================="
-    Write-Host "  Estudiante: Herman Geovany Ayala Zuñiga                        "
+    Write-Host "  Estudiante: Herman Geovany Ayala Zuniga                        "
     Write-Host "=================================================================="
 }
 
-# Verificación automatizada de servicios y certificados en Windows
+# Verificacion automatizada de servicios y certificados en Windows
 function Mostrar-Resumen-Servicios-Win {
     Write-Host "`n=== RESUMEN DE INTEGRIDAD Y SERVICIOS SEGUROS (WINDOWS) ===" -ForegroundColor Cyan
     Import-Module WebAdministration -ErrorAction SilentlyContinue
@@ -91,29 +91,29 @@ function Mostrar-Resumen-Servicios-Win {
 # Bucle principal del orquestador
 while ($true) {
     Mostrar-Banner-Win
-    Write-Host "  1) Instalar/Actualizar Servicio HTTP (Híbrido: Web/FTP)"
+    Write-Host "  1) Instalar/Actualizar Servicio HTTP (Hibrido: Web/FTP)"
     Write-Host "  2) Configurar SSL/TLS Seguro en Servicio (HTTP o FTP)"
     Write-Host "  3) Mostrar Estado y Resumen de Seguridad"
     Write-Host "  4) Salir"
     Write-Host "=================================================================="
-    $opt = Read-Host "Selecciona una opción (1-4)"
+    $opt = Read-Host "Selecciona una opcion (1-4)"
 
     switch ($opt) {
         "1" {
             Mostrar-Banner-Win
-            Write-Host "`n=== FUENTE DE INSTALACIÓN HÍBRIDA ===" -ForegroundColor Cyan
-            Write-Host "  1) WEB (vía Gestor de Paquetes Chocolatey)"
-            Write-Host "  2) FTP (vía Repositorio Privado Práctica 5)"
+            Write-Host "`n=== FUENTE DE INSTALACION HIBRIDA ===" -ForegroundColor Cyan
+            Write-Host "  1) WEB (via Gestor de Paquetes Chocolatey)"
+            Write-Host "  2) FTP (via Repositorio Privado Practica 5)"
             Write-Host "  3) Regresar"
             $fuente_opt = Read-Host "Selecciona fuente (1-3)"
 
             if ($fuente_opt -eq "1") {
-                # Flujo normal de Tarea 6 (Instalación por Web/Chocolatey)
+                # Flujo normal de Tarea 6 (Instalacion por Web/Chocolatey)
                 Write-Host "`nSeleccione el servicio a instalar:" -ForegroundColor Cyan
                 Write-Host "  1) IIS"
                 Write-Host "  2) Apache Windows"
                 Write-Host "  3) Nginx Windows"
-                $svc_opt = Read-Host "Opción (1-3)"
+                $svc_opt = Read-Host "Opcion (1-3)"
                 
                 switch ($svc_opt) {
                     "1" {
@@ -136,10 +136,10 @@ while ($true) {
                     }
                 }
             } elseif ($fuente_opt -eq "2") {
-                # Flujo de descarga FTP y validación de hash
+                # Flujo de descarga FTP y validacion de hash
                 $binario = Descargar-Desde-FTP-Win -OSTarget "Windows"
                 if ($null -ne $binario -and (Test-Path $binario)) {
-                    Write-Host "`n[INFO] Iniciando instalación manual/silenciosa del binario descargado: $binario" -ForegroundColor Yellow
+                    Write-Host "`n[INFO] Iniciando instalacion manual/silenciosa del binario descargado: $binario" -ForegroundColor Yellow
                     
                     if ($binario.EndsWith(".msi")) {
                         Write-Host "[INFO] Ejecutando instalador MSI de forma silenciosa..." -ForegroundColor Yellow
@@ -153,7 +153,7 @@ while ($true) {
                         if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
                         Expand-Archive -Path $binario -DestinationPath $dest -Force
                     }
-                    Write-Host "[OK] Instalación completada exitosamente." -ForegroundColor Green
+                    Write-Host "[OK] Instalacion completada exitosamente." -ForegroundColor Green
                     Start-Sleep -Seconds 2
                 }
             }

@@ -19,8 +19,6 @@ mostrar_banner() {
     echo "=================================================================="
     echo "  ORQUESTADOR DE INFRAESTRUCTURA DE DESPLIEGUE SEGURO (TAREA 7)  "
     echo "=================================================================="
-    echo "  Estudiante: Herman Geovany Ayala Zuñiga                        "
-    echo "=================================================================="
 }
 
 # Verificación automatizada de servicios y certificados

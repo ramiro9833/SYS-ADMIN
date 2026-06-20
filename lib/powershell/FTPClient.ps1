@@ -1,4 +1,4 @@
-# lib/powershell/FTPClient.ps1 - Cliente FTP dinámico y validación de integridad para Windows
+# lib/powershell/FTPClient.ps1 - Cliente FTP dinamico y validacion de integridad para Windows
 
 $global:FTP_IP = ""
 $global:FTP_USER = ""
@@ -13,10 +13,10 @@ function Solicitar-Credenciales-FTP-Win {
     $input_user = Read-Host "Usuario FTP [ftpuser]"
     $global:FTP_USER = if ([string]::IsNullOrWhiteSpace($input_user)) { "ftpuser" } else { $input_user }
 
-    $global:FTP_PASS = Read-Host "Contraseña FTP" -AsSecureString
+    $global:FTP_PASS = Read-Host "Contrasena FTP" -AsSecureString
 }
 
-# Obtener contraseña en texto plano desde SecureString
+# Obtener contrasena en texto plano desde SecureString
 function Obtener-Plano-Pass-Win {
     if ($global:FTP_PASS -is [System.Security.SecureString]) {
         $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($global:FTP_PASS)
@@ -65,7 +65,7 @@ function Descargar-Archivo-FTP-Win {
     }
 }
 
-# Navegación y descarga dinámica por FTP en Windows
+# Navegacion y descarga dinamica por FTP en Windows
 function Descargar-Desde-FTP-Win {
     param([string]$OSTarget) # "Windows" o "Linux"
 
@@ -78,7 +78,7 @@ function Descargar-Desde-FTP-Win {
     # 1. Listar servicios
     $servicios = Listar-Directorio-FTP-Win -Ruta "http/$OSTarget/"
     if ($null -eq $servicios -or $servicios.Count -eq 0) {
-        Write-Host "[ERROR] No se pudo conectar al servidor FTP o la carpeta http/$OSTarget/ está vacía." -ForegroundColor Red
+        Write-Host "[ERROR] No se pudo conectar al servidor FTP o la carpeta http/$OSTarget/ esta vacia." -ForegroundColor Red
         return $null
     }
 
@@ -88,10 +88,10 @@ function Descargar-Desde-FTP-Win {
     }
     Write-Host "  $($servicios.Length + 1))- Cancelar y volver"
 
-    $opcion_svc = Read-Host "Selecciona una opción (1-$($servicios.Length + 1))"
+    $opcion_svc = Read-Host "Selecciona una opcion (1-$($servicios.Length + 1))"
     $idx_svc = 0
     if (-not [int]::TryParse($opcion_svc, [ref]$idx_svc) -or $idx_svc -le 0 -or $idx_svc -gt $servicios.Length) {
-        Write-Host "Operación cancelada." -ForegroundColor Yellow
+        Write-Host "Operacion cancelada." -ForegroundColor Yellow
         return $null
     }
 
@@ -101,7 +101,7 @@ function Descargar-Desde-FTP-Win {
     # 2. Listar archivos
     $todos_archivos = Listar-Directorio-FTP-Win -Ruta "$ruta_svc/"
     if ($null -eq $todos_archivos -or $todos_archivos.Length -eq 0) {
-        Write-Host "[ERROR] La carpeta del servicio $svc_elegido está vacía o no existe." -ForegroundColor Red
+        Write-Host "[ERROR] La carpeta del servicio $svc_elegido esta vacia o no existe." -ForegroundColor Red
         return $null
     }
 
@@ -112,7 +112,7 @@ function Descargar-Desde-FTP-Win {
         return $null
     }
 
-    Write-Host "`nArchivos de instalación disponibles:" -ForegroundColor Cyan
+    Write-Host "`nArchivos de instalacion disponibles:" -ForegroundColor Cyan
     for ($i = 0; $i -lt $instaladores.Length; $i++) {
         Write-Host "  $($i+1))- $($instaladores[$i])"
     }
@@ -121,7 +121,7 @@ function Descargar-Desde-FTP-Win {
     $opcion_file = Read-Host "Selecciona el archivo a descargar (1-$($instaladores.Length + 1))"
     $idx_file = 0
     if (-not [int]::TryParse($opcion_file, [ref]$idx_file) -or $idx_file -le 0 -or $idx_file -gt $instaladores.Length) {
-        Write-Host "Operación cancelada." -ForegroundColor Yellow
+        Write-Host "Operacion cancelada." -ForegroundColor Yellow
         return $null
     }
 
@@ -137,11 +137,11 @@ function Descargar-Desde-FTP-Win {
     Write-Host "`n[INFO] Descargando $binario_elegido..." -ForegroundColor Yellow
     $ok = Descargar-Archivo-FTP-Win -Url $url_binario -Destino $local_binario
     if (-not $ok) {
-        Write-Host "[ERROR] Falló la descarga del instalador." -ForegroundColor Red
+        Write-Host "[ERROR] Fallo la descarga del instalador." -ForegroundColor Red
         return $null
     }
 
-    # 3. Validación de Integridad
+    # 3. Validacion de Integridad
     $validado = $false
     $firma_ext = ""
     foreach ($archivo in $todos_archivos) {
@@ -176,7 +176,7 @@ function Descargar-Desde-FTP-Win {
         }
 
         if ($validado) {
-            Write-Host "[OK] Verificación de integridad exitosa (Hash Coincide)." -ForegroundColor Green
+            Write-Host "[OK] Verificacion de integridad exitosa (Hash Coincide)." -ForegroundColor Green
         } else {
             Write-Host "[ERROR] ¡ARCHIVO CORRUPTO! El hash no coincide con el del servidor." -ForegroundColor Red
             Remove-Item $local_binario -Force -ErrorAction SilentlyContinue
@@ -184,8 +184,8 @@ function Descargar-Desde-FTP-Win {
             return $null
         }
     } else {
-        Write-Host "[WARNING] No se encontró un archivo de firma (.sha256 o .md5) en el servidor FTP." -ForegroundColor Warning
-        $continuar = Read-Host "¿Desea continuar la instalación sin verificar la integridad? [s/N]"
+        Write-Host "[WARNING] No se encontro un archivo de firma (.sha256 o .md5) en el servidor FTP." -ForegroundColor Warning
+        $continuar = Read-Host "¿Desea continuar la instalacion sin verificar la integridad? [s/N]"
         if ($continuar -notmatch '^[sS]$') {
             Remove-Item $local_binario -Force -ErrorAction SilentlyContinue
             return $null
