@@ -16,9 +16,7 @@ Verificar-Admin
 function Mostrar-Banner-Win {
     Clear-Host
     Write-Host "=================================================================="
-    Write-Host "  ORQUESTADOR DE INFRAESTRUCTURA DE DESPLIEGUE SEGURO (TAREA 7)  "
-    Write-Host "=================================================================="
-    Write-Host "  Estudiante: Herman Geovany Ayala Zuniga                        "
+    Write-Host "  ORQUESTADOR DE INFRAESTRUCTURA DE DESPLIEGUE SEGURO "
     Write-Host "=================================================================="
 }
 
