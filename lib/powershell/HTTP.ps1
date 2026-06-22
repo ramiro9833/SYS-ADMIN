@@ -14,12 +14,43 @@ function Asegurar-Chocolatey {
         Write-Host "[INFO] Chocolatey ya instalado." -ForegroundColor Green
         return
     }
-    Write-Host "[INFO] Instalando Chocolatey..." -ForegroundColor Yellow
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-    $env:PATH += ";$env:ALLUSERSPROFILE\chocolatey\bin"
-    Write-Host "[OK] Chocolatey instalado." -ForegroundColor Green
+    Write-Host "[INFO] Chocolatey NO detectado. Instalando ahora..." -ForegroundColor Yellow
+    try {
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        $installScript = (New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')
+        Invoke-Expression $installScript
+    } catch {
+        Write-Host "[ERROR] Fallo la descarga/instalacion de Chocolatey: $_" -ForegroundColor Red
+        Write-Host "[INFO] Intentando instalacion alternativa..." -ForegroundColor Yellow
+        try {
+            Invoke-WebRequest -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing -OutFile "$env:TEMP\choco_install.ps1"
+            & "$env:TEMP\choco_install.ps1"
+        } catch {
+            Write-Host "[ERROR] Fallo tambien la instalacion alternativa: $_" -ForegroundColor Red
+            return
+        }
+    }
+
+    # Refrescar PATH para la sesion actual
+    $chocoPath = "$env:ALLUSERSPROFILE\chocolatey\bin"
+    if (Test-Path $chocoPath) {
+        $env:PATH = "$chocoPath;$env:PATH"
+        # Cargar perfil de Chocolatey si existe
+        $chocoProfile = "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+        if (Test-Path $chocoProfile) {
+            Import-Module $chocoProfile -Force
+            Update-SessionEnvironment -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Verificar que realmente se instalo
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        $ver = choco --version 2>$null
+        Write-Host "[OK] Chocolatey instalado correctamente (v$ver)." -ForegroundColor Green
+    } else {
+        Write-Host "[ERROR] Chocolatey no se pudo instalar. Verifique la conexion a internet." -ForegroundColor Red
+    }
 }
 
 # ─── Validar puerto ───────────────────────────────────────────────────────────
