@@ -152,6 +152,7 @@ function Buscar-NginxBase-Win {
 # Configurar SSL para IIS Windows
 # ══════════════════════════════════════════════════════════════════════════════
 function Configurar-SSL-IIS-Win {
+    Asegurar-Hosts-Win
     Write-Host "`n[INFO] Configurando SSL/TLS en IIS..." -ForegroundColor Yellow
     Import-Module WebAdministration -ErrorAction SilentlyContinue
 
@@ -202,6 +203,7 @@ function Configurar-SSL-IIS-Win {
 # Configurar SSL para Apache Windows
 # ══════════════════════════════════════════════════════════════════════════════
 function Configurar-SSL-Apache-Win {
+    Asegurar-Hosts-Win
     Write-Host "`n[INFO] Configurando SSL/TLS en Apache Windows..." -ForegroundColor Yellow
 
     $apacheBase = Buscar-ApacheBase-Win
@@ -281,6 +283,7 @@ SSLSessionCacheTimeout 300
 # Configurar SSL para Nginx Windows
 # ══════════════════════════════════════════════════════════════════════════════
 function Configurar-SSL-Nginx-Win {
+    Asegurar-Hosts-Win
     Write-Host "`n[INFO] Configurando SSL/TLS en Nginx Windows..." -ForegroundColor Yellow
 
     $nginxBase = Buscar-NginxBase-Win
@@ -379,5 +382,29 @@ function Configurar-SSL-IISFTP-Win {
         Write-Host "[OK] IIS-FTP configurado con FTPS (Require SSL)." -ForegroundColor Green
     } catch {
         Write-Host "[ERROR] Error al configurar FTPS en IIS: $_" -ForegroundColor Red
+    }
+}
+
+# Asegurar que el dominio local este en el archivo hosts
+function Asegurar-Hosts-Win {
+    $hostsPath = "C:\Windows\System32\drivers\etc\hosts"
+    $ip = "127.0.0.1"
+    $entry = "$ip $global:DOMINIO"
+    
+    $hostsContent = Get-Content $hostsPath -ErrorAction SilentlyContinue
+    $exists = $false
+    
+    if ($hostsContent) {
+        foreach ($line in $hostsContent) {
+            if ($line -match "^\s*[^#]*$global:DOMINIO") {
+                $exists = $true
+                break
+            }
+        }
+    }
+    
+    if (-not $exists) {
+        Write-Host "[INFO] Agregando $global:DOMINIO al archivo hosts local..." -ForegroundColor Yellow
+        Add-Content -Path $hostsPath -Value "`n$entry" -ErrorAction SilentlyContinue
     }
 }
