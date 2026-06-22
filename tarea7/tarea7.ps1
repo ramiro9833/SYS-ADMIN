@@ -95,6 +95,7 @@ function Mostrar-Resumen-Servicios-Win {
     
     Write-Host "`nPresione Enter para continuar..."
     Read-Host
+}
 
 # Bucle principal del orquestador
 while ($true) {
