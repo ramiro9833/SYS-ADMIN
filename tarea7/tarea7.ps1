@@ -83,8 +83,18 @@ function Mostrar-Resumen-Servicios-Win {
     }
 
     Write-Host "================================================="
-    Read-Host "Presione Enter para continuar..."
-}
+    
+    # Obtener IP para mostrar comando de prueba
+    $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "192.168.*" } | Select-Object -First 1).IPAddress
+    if (-not $ip) { $ip = "127.0.0.1" }
+    
+    Write-Host "`n[INFO] Para probar desde tu maquina Linux (sin editar /etc/hosts), ejecuta:" -ForegroundColor Cyan
+    Write-Host "curl -k -H `"Host: www.reprobados.com`" https://$ip/" -ForegroundColor White
+    Write-Host "`nPara probar en el navegador, debes anadir esta linea a tu /etc/hosts en Linux:" -ForegroundColor Cyan
+    Write-Host "$ip  www.reprobados.com" -ForegroundColor White
+    
+    Write-Host "`nPresione Enter para continuar..."
+    Read-Host
 
 # Bucle principal del orquestador
 while ($true) {
