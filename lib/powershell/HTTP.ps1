@@ -105,9 +105,9 @@ function Consultar-Versiones-Apache-Win {
     try {
         $raw = choco list $CHOCO_APACHE_ID --all-versions 2>$null | Select-String -Pattern "$CHOCO_APACHE_ID\s+\d"
         $vers = $raw | ForEach-Object { ($_ -split '\s+')[1] } | Select-Object -Unique | Select-Object -First 5
-        if (-not $vers) { return @("2.4.63","2.4.62","2.4.58") }
+        if (-not $vers) { return @("2.4.55","2.4.54","2.4.53") }
         return $vers
-    } catch { return @("2.4.63","2.4.62","2.4.58") }
+    } catch { return @("2.4.55","2.4.54","2.4.53") }
 }
 
 # ─── Consultar versiones Nginx Windows (Chocolatey) ──────────────────────────
@@ -458,13 +458,22 @@ function Instalar-Apache-Win {
         Write-Host "[ERROR] No se encontro httpd.conf de Apache." -ForegroundColor Red; return
     }
 
-    # Cambiar puerto de escucha de forma segura (solo líneas activas sin comentarios)
-    (Get-Content "$apacheBase\conf\httpd.conf") -replace '^\s*Listen\s+\d+', "Listen $Puerto" |
-        Set-Content "$apacheBase\conf\httpd.conf"
-    (Get-Content "$apacheBase\conf\httpd.conf") -replace 'ServerTokens Full','ServerTokens Prod' |
-        Set-Content "$apacheBase\conf\httpd.conf"
+    # Cambiar puerto de escucha de forma segura (solo lineas activas sin comentarios)
+    $confContent = Get-Content "$apacheBase\conf\httpd.conf"
+    $confContent = $confContent -replace '^\s*Listen\s+\d+', "Listen $Puerto"
+    $confContent = $confContent -replace 'ServerTokens Full','ServerTokens Prod'
+    # Habilitar mod_headers (REQUERIDO para directivas Header en httpd-security.conf)
+    $confContent = $confContent -replace '#\s*LoadModule headers_module', 'LoadModule headers_module'
+    # Habilitar mod_rewrite (para redirecciones SSL)
+    $confContent = $confContent -replace '#\s*LoadModule rewrite_module', 'LoadModule rewrite_module'
+    $confContent | Set-Content "$apacheBase\conf\httpd.conf"
+    Write-Host "[OK] httpd.conf actualizado: puerto $Puerto, mod_headers y mod_rewrite habilitados." -ForegroundColor Green
 
-    # Hardening
+    # Crear directorio extra si no existe
+    $extraDir = "$apacheBase\conf\extra"
+    if (-not (Test-Path $extraDir)) { New-Item -ItemType Directory -Path $extraDir -Force | Out-Null }
+
+    # Hardening (ahora mod_headers esta habilitado, Header funciona)
     $secConf = "$apacheBase\conf\extra\httpd-security.conf"
     @"
 ServerTokens Prod
