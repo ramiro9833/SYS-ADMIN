@@ -93,3 +93,61 @@ Se genera dinámicamente un certificado autofirmado para el dominio `www.reproba
    ```
    *(La terminal debe reportar el saludo y la transferencia encriptada TLSv1.2/TLSv1.3)*
 3. **Prueba de Integridad de Hashes:** Al descargar paquetes vía FTP, el menú muestra visualmente la descarga del `.sha256` y la coincidencia de hashes con estado `[OK]`.
+
+---
+
+## 6. Correcciones Aplicadas (Bugs Identificados y Solucionados)
+
+### Bug 1 — `ftp_client.sh`: Stdout contaminado (Crítico)
+
+**Síntoma:** `binario=$(descargar_desde_ftp "Linux")` capturaba todos los `echo` de la función junto con la ruta final del binario, resultando en un string multi-línea en lugar de una ruta válida.
+
+**Corrección:** Todos los mensajes de log redirigidos a `stderr` (`>&2`). Solo la ruta del archivo va al `stdout`.
+
+```bash
+echo -e "\n[INFO] Conectando..." >&2   # mensajes → stderr
+echo "$local_binario"                  # único valor → stdout (capturado por $())
+```
+
+### Bug 2 — `ftp.sh`: Usuarios de vsftpd no podían hacer login (Error 500)
+
+**Síntoma:** vsftpd respondía `500 OOPS: refusing to run with writable root inside chroot()`.
+
+**Causa:** Con `chroot_local_user=YES`, vsftpd exige que el directorio raíz del chroot sea `root:root 755`. El script tenía `allow_writeable_chroot=YES` que solo funciona en vsftpd < 3.0.
+
+**Corrección:**
+```bash
+# Raíz del chroot: siempre root:root 755
+chown root:root "/srv/ftp/usuarios/$username"
+chmod 755 "/srv/ftp/usuarios/$username"
+# Subdirectorio de escritura del usuario
+chmod 700 "/srv/ftp/usuarios/$username/privado"
+```
+
+### Bug 3 — `ftp_client.sh`: `curl -l` puede devolver paths completos
+
+**Síntoma:** Algunos modos de vsftpd devuelven `/http/Linux/Apache` en lugar de solo `Apache`. Las rutas de descarga se duplicaban.
+
+**Corrección:** Se aplica `basename` a cada línea del listado antes de usarla.
+
+### Bug 4 — `FTPClient.ps1`: `.Length` falla en array de un elemento
+
+**Síntoma (Windows):** Con 1 solo elemento, PowerShell devuelve `[string]` en vez de `[string[]]`. `.Length` retorna la longitud del texto (caracteres), no 1.
+
+**Corrección:** Forzar tipo array con `@()` y usar `.Count`:
+```powershell
+$servicios = @(Listar-Directorio-FTP-Win -Ruta "http/$OSTarget/")
+if ($servicios.Count -eq 0) { ... }
+```
+
+### Bug 5 — `FTPClient.ps1`: `-ForegroundColor Warning` inválido
+
+**Corrección:** Cambiado a `-ForegroundColor Yellow`.
+
+### Nuevo: `tarea7/setup_ftp_repo.sh`
+
+Script de preparación del servidor FTP que crea la estructura correcta del repositorio y configura los permisos de chroot. Ejecutar en el servidor FTP antes de usar el orquestador:
+
+```bash
+sudo ./tarea7/setup_ftp_repo.sh ftprepo MiPass123
+```

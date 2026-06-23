@@ -36,3 +36,14 @@ apache-tomcat-*/
 xd.txt
 temp*
 debug*
+
+# Respaldos PostgreSQL generados por Tarea 10
+tarea10/backups/*.sql.gz
+
+# Variables de entorno con credenciales (Tarea 11)
+tarea11/.env
+
+# Variables de entorno con credenciales (Tarea 12)
+tarea12/.env
+tarea12/certs/*.pem
+tarea12/backups/mail_data_*.tar.gz

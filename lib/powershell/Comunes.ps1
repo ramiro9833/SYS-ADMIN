@@ -34,14 +34,9 @@ function Leer-IP($prompt, $default) {
 
 # ─── Instalar característica de Windows de forma idempotente ─────────────────
 function Instalar-Feature($featureName) {
-    $feat = Get-WindowsFeature -Name $featureName
-    if ($feat.Installed) {
-        Write-Host "[INFO] Caracteristica '$featureName' ya instalada." -ForegroundColor Green
-        return
-    }
-    Write-Host "[INFO] Instalando '$featureName'..." -ForegroundColor Yellow
+    Write-Host "[INFO] Asegurando instalacion de '$featureName' con herramientas de administracion..." -ForegroundColor Yellow
     Install-WindowsFeature -Name $featureName -IncludeManagementTools -ErrorAction Stop | Out-Null
-    Write-Host "[OK] '$featureName' instalada correctamente." -ForegroundColor Green
+    Write-Host "[OK] '$featureName' configurada correctamente." -ForegroundColor Green
 }
 
 # ─── Banner de sección ────────────────────────────────────────────────────────

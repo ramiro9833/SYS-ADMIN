@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microservicio Interno — Tarea 11</title>
+    <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Servicio Web Interno</h1>
+            <p class="badge" id="instance-badge">Instancia: INSTANCIA_PLACEHOLDER</p>
+        </header>
+        <main>
+            <p>Este contenedor <strong>no expone puertos</strong> al host.</p>
+            <p>El trafico llega exclusivamente a traves del balanceador Nginx en <code>red_publica</code>.</p>
+            <section class="info">
+                <h2>Capas de la arquitectura</h2>
+                <ul>
+                    <li><span class="layer pub">Publica</span> Balanceador Nginx</li>
+                    <li><span class="layer app">Logica</span> web_app / web_app_b</li>
+                    <li><span class="layer data">Datos</span> PostgreSQL + pgAdmin (red_datos)</li>
+                </ul>
+            </section>
+        </main>
+    </div>
+    <script src="/js/instance.js"></script>
+</body>
+</html>

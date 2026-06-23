@@ -1,0 +1,101 @@
+/* tarea10/web/html/css/style.css */
+:root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --accent: #38bdf8;
+    --accent2: #a78bfa;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+}
+
+.hero {
+    text-align: center;
+    padding: 3rem 1rem 2rem;
+    background: linear-gradient(135deg, #1e3a5f 0%, var(--bg) 100%);
+    border-bottom: 1px solid #334155;
+}
+
+.logo {
+    width: 120px;
+    height: 120px;
+    margin-bottom: 1rem;
+    filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.4));
+}
+
+.hero h1 {
+    font-size: 2rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.subtitle { color: var(--muted); margin-top: 0.5rem; }
+
+.container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    display: grid;
+    gap: 1.5rem;
+}
+
+.card {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid #334155;
+}
+
+.card h2 {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+    color: var(--accent);
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    margin-right: 0.5rem;
+}
+.badge.web  { background: #0ea5e9; color: #0f172a; }
+.badge.db   { background: #8b5cf6; color: #fff; }
+.badge.ftp  { background: #f59e0b; color: #0f172a; }
+
+#services { list-style: none; }
+#services li { padding: 0.4rem 0; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.5rem;
+}
+th, td {
+    text-align: left;
+    padding: 0.6rem;
+    border-bottom: 1px solid #334155;
+}
+th { color: var(--muted); font-size: 0.85rem; }
+
+a { color: var(--accent); }
+
+footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+.muted { font-size: 0.75rem; margin-top: 0.25rem; }

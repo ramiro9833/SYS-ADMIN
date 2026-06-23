@@ -1,0 +1,121 @@
+# tarea11/docker-compose.yml
+# Orquestacion Tarea 11: Microservicios, HA y tuneles SSH
+# Redes: red_publica (balanceador) | red_datos (BD + pgAdmin aislados)
+# Credenciales: exclusivamente via archivo .env
+
+name: sysadmin-tarea11
+
+networks:
+  red_publica:
+    name: red_publica
+    driver: bridge
+  red_datos:
+    name: red_datos
+    driver: bridge
+    internal: true
+
+volumes:
+  tarea11_db_data:
+    name: tarea11_db_data
+
+services:
+  # ─── Balanceador / Frontend (unico punto de entrada publico) ───────────────
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: tarea11_nginx
+    hostname: nginx
+    networks:
+      - red_publica
+      - red_datos
+    ports:
+      - "${NGINX_PUBLIC_PORT}:8080"
+    restart: always
+    depends_on:
+      web_app:
+        condition: service_started
+      web_app_b:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─── Servidor de aplicaciones interno A (sin puertos al host) ──────────────
+  web_app:
+    build:
+      context: ./web_app
+      dockerfile: Dockerfile
+      args:
+        INSTANCE_LABEL: A
+    container_name: tarea11_web_app
+    hostname: web_app
+    networks:
+      - red_publica
+    restart: always
+    # Sin seccion 'ports' — solo accesible via nginx
+
+  # ─── Servidor de aplicaciones interno B (replica para balanceo) ────────────
+  web_app_b:
+    build:
+      context: ./web_app
+      dockerfile: Dockerfile
+      args:
+        INSTANCE_LABEL: B
+    container_name: tarea11_web_app_b
+    hostname: web_app_b
+    networks:
+      - red_publica
+    restart: always
+
+  # ─── Clúster PostgreSQL (capa de datos, red aislada) ───────────────────────
+  db:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: tarea11_db
+    hostname: db
+    networks:
+      - red_datos
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - tarea11_db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ─── Panel administrativo pgAdmin (solo localhost en host + red_datos) ─────
+  pgadmin:
+    image: dpage/pgadmin4:${PGADMIN_VERSION}
+    container_name: tarea11_pgadmin
+    hostname: pgadmin
+    networks:
+      - red_datos
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_LISTEN_PORT: ${PGADMIN_PORT}
+    volumes:
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    # Solo accesible desde localhost del host (tunel SSH) — NO expuesto a IP externa
+    ports:
+      - "127.0.0.1:${PGADMIN_HOST_PORT}:${PGADMIN_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:${PGADMIN_PORT}/misc/ping || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

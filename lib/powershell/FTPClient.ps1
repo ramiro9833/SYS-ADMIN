@@ -25,28 +25,54 @@ function Obtener-Plano-Pass-Win {
     return $global:FTP_PASS
 }
 
-# Listar directorio FTP
+# Listar directorio FTP - devuelve array de nombres (solo el basename de cada entrada)
 function Listar-Directorio-FTP-Win {
-    param([string]$Ruta)
+    param([string]$Ruta, [bool]$UsePassive = $true)
     $planoPass = Obtener-Plano-Pass-Win
     $uri = "ftp://$global:FTP_IP/$Ruta"
     try {
         $request = [System.Net.FtpWebRequest]::Create($uri)
         $request.Credentials = New-Object System.Net.NetworkCredential($global:FTP_USER, $planoPass)
         $request.Method = [System.Net.WebRequestMethods+Ftp]::ListDirectory
-        $request.Timeout = 10000 # 10 segundos
+        $request.UsePassive = $UsePassive     # PASV para clientes Windows/.NET
+        $request.UseBinary  = $true
+        $request.KeepAlive  = $false
+        $request.Timeout = 10000
+        $request.ReadWriteTimeout = 15000
         $response = $request.GetResponse()
         $stream = $response.GetResponseStream()
         $reader = New-Object System.IO.StreamReader($stream)
         $output = $reader.ReadToEnd()
         $reader.Close()
         $response.Close()
-        
-        $items = $output -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+        # Parsear: filtrar lineas vacias y extraer solo el nombre (basename)
+        $items = @()
+        foreach ($line in ($output -split "`r?`n")) {
+            $line = $line.Trim()
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            # Si viene en formato largo tipo ls -l (empieza con d o -), tomar la ultima columna
+            if ($line -match '^[d\-][rwx\-]{9}') {
+                $parts = $line -split '\s+'
+                if ($parts.Count -ge 9) {
+                    $line = ($parts[8..($parts.Count-1)] -join ' ').Trim()
+                }
+            }
+            # Tomar solo el basename (por si viene ruta completa)
+            $line = [System.IO.Path]::GetFileName($line.TrimEnd('/'))
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                $items += $line
+            }
+        }
         return $items
     } catch {
+        # Si PASV falló, reintentar en modo ACTIVO (PORT)
+        if ($UsePassive) {
+            Write-Host "[INFO] Modo PASV falló, reintentando en modo ACTIVO (PORT)..." -ForegroundColor Yellow
+            return Listar-Directorio-FTP-Win -Ruta $Ruta -UsePassive $false
+        }
         Write-Host "[ERROR] Error al listar FTP ($uri): $_" -ForegroundColor Red
-        return $null
+        return @()
     }
 }
 
@@ -55,9 +81,22 @@ function Descargar-Archivo-FTP-Win {
     param([string]$Url, [string]$Destino)
     $planoPass = Obtener-Plano-Pass-Win
     try {
-        $webclient = New-Object System.Net.WebClient
-        $webclient.Credentials = New-Object System.Net.NetworkCredential($global:FTP_USER, $planoPass)
-        $webclient.DownloadFile($Url, $Destino)
+        $request = [System.Net.FtpWebRequest]::Create($Url)
+        $request.Credentials = New-Object System.Net.NetworkCredential($global:FTP_USER, $planoPass)
+        $request.Method = [System.Net.WebRequestMethods+Ftp]::DownloadFile
+        $request.UsePassive = $true   # PASV - requerido para Windows
+        $request.UseBinary  = $true
+        $request.KeepAlive  = $false
+        $request.Timeout = 30000
+        $request.ReadWriteTimeout = 120000  # 2 min para archivos grandes
+
+        $response = $request.GetResponse()
+        $stream   = $response.GetResponseStream()
+        $fileStream = [System.IO.File]::Create($Destino)
+        $stream.CopyTo($fileStream)
+        $fileStream.Close()
+        $stream.Close()
+        $response.Close()
         return $true
     } catch {
         Write-Host "[ERROR] Error al descargar de FTP ($Url): $_" -ForegroundColor Red
@@ -76,21 +115,25 @@ function Descargar-Desde-FTP-Win {
     Write-Host "`n[INFO] Conectando a ftp://$global:FTP_IP/http/$OSTarget/..." -ForegroundColor Yellow
 
     # 1. Listar servicios
-    $servicios = Listar-Directorio-FTP-Win -Ruta "http/$OSTarget/"
-    if ($null -eq $servicios -or $servicios.Count -eq 0) {
+    $servicios = @(Listar-Directorio-FTP-Win -Ruta "http/$OSTarget/")
+    if ($servicios.Count -eq 0) {
         Write-Host "[ERROR] No se pudo conectar al servidor FTP o la carpeta http/$OSTarget/ esta vacia." -ForegroundColor Red
+        Write-Host "[HINT] Verifica:" -ForegroundColor Yellow
+        Write-Host "  1. IP del servidor FTP: $global:FTP_IP" -ForegroundColor Yellow
+        Write-Host "  2. Usuario '$global:FTP_USER' tiene acceso a la carpeta http/$OSTarget/" -ForegroundColor Yellow
+        Write-Host "  3. El repositorio FTP fue preparado con setup_ftp_repo.sh" -ForegroundColor Yellow
         return $null
     }
 
     Write-Host "`nServicios disponibles en el repositorio FTP:" -ForegroundColor Cyan
-    for ($i = 0; $i -lt $servicios.Length; $i++) {
+    for ($i = 0; $i -lt $servicios.Count; $i++) {
         Write-Host "  $($i+1))- $($servicios[$i])"
     }
-    Write-Host "  $($servicios.Length + 1))- Cancelar y volver"
+    Write-Host "  $($servicios.Count + 1))- Cancelar y volver"
 
-    $opcion_svc = Read-Host "Selecciona una opcion (1-$($servicios.Length + 1))"
+    $opcion_svc = Read-Host "Selecciona una opcion (1-$($servicios.Count + 1))"
     $idx_svc = 0
-    if (-not [int]::TryParse($opcion_svc, [ref]$idx_svc) -or $idx_svc -le 0 -or $idx_svc -gt $servicios.Length) {
+    if (-not [int]::TryParse($opcion_svc, [ref]$idx_svc) -or $idx_svc -le 0 -or $idx_svc -gt $servicios.Count) {
         Write-Host "Operacion cancelada." -ForegroundColor Yellow
         return $null
     }
@@ -99,28 +142,28 @@ function Descargar-Desde-FTP-Win {
     $ruta_svc = "http/$OSTarget/$svc_elegido"
 
     # 2. Listar archivos
-    $todos_archivos = Listar-Directorio-FTP-Win -Ruta "$ruta_svc/"
-    if ($null -eq $todos_archivos -or $todos_archivos.Length -eq 0) {
+    $todos_archivos = @(Listar-Directorio-FTP-Win -Ruta "$ruta_svc/")
+    if ($todos_archivos.Count -eq 0) {
         Write-Host "[ERROR] La carpeta del servicio $svc_elegido esta vacia o no existe." -ForegroundColor Red
         return $null
     }
 
     # Filtrar solo archivos instaladores (no archivos de firma)
-    $instaladores = $todos_archivos | Where-Object { $_ -notmatch '\.(sha256|md5)$' }
-    if ($instaladores.Length -eq 0) {
+    $instaladores = @($todos_archivos | Where-Object { $_ -notmatch '\.(sha256|md5)$' })
+    if ($instaladores.Count -eq 0) {
         Write-Host "[ERROR] No se encontraron instaladores en $ruta_svc." -ForegroundColor Red
         return $null
     }
 
     Write-Host "`nArchivos de instalacion disponibles:" -ForegroundColor Cyan
-    for ($i = 0; $i -lt $instaladores.Length; $i++) {
+    for ($i = 0; $i -lt $instaladores.Count; $i++) {
         Write-Host "  $($i+1))- $($instaladores[$i])"
     }
-    Write-Host "  $($instaladores.Length + 1))- Cancelar"
+    Write-Host "  $($instaladores.Count + 1))- Cancelar"
 
-    $opcion_file = Read-Host "Selecciona el archivo a descargar (1-$($instaladores.Length + 1))"
+    $opcion_file = Read-Host "Selecciona el archivo a descargar (1-$($instaladores.Count + 1))"
     $idx_file = 0
-    if (-not [int]::TryParse($opcion_file, [ref]$idx_file) -or $idx_file -le 0 -or $idx_file -gt $instaladores.Length) {
+    if (-not [int]::TryParse($opcion_file, [ref]$idx_file) -or $idx_file -le 0 -or $idx_file -gt $instaladores.Count) {
         Write-Host "Operacion cancelada." -ForegroundColor Yellow
         return $null
     }
@@ -184,7 +227,7 @@ function Descargar-Desde-FTP-Win {
             return $null
         }
     } else {
-        Write-Host "[WARNING] No se encontro un archivo de firma (.sha256 o .md5) en el servidor FTP." -ForegroundColor Warning
+        Write-Host "[WARNING] No se encontro un archivo de firma (.sha256 o .md5) en el servidor FTP." -ForegroundColor Yellow
         $continuar = Read-Host "¿Desea continuar la instalacion sin verificar la integridad? [s/N]"
         if ($continuar -notmatch '^[sS]$') {
             Remove-Item $local_binario -Force -ErrorAction SilentlyContinue

@@ -3,13 +3,31 @@
 
 # Obtener directorio del script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB_DIR="$SCRIPT_DIR/../lib/bash"
 
-# Cargar librerías
-source "$LIB_DIR/comunes.sh"
-source "$LIB_DIR/http.sh"
-source "$LIB_DIR/ftp_client.sh"
-source "$LIB_DIR/ssl.sh"
+# Buscar directorio de librerías dinámicamente
+# Buscar directorio de librerías dinámicamente
+if [ -f "$SCRIPT_DIR/../lib/bash/comunes.sh" ] && [ -f "$SCRIPT_DIR/../lib/bash/ftp_client.sh" ]; then
+    LIB_DIR="$SCRIPT_DIR/../lib/bash"
+elif [ -f "$SCRIPT_DIR/lib/bash/comunes.sh" ] && [ -f "$SCRIPT_DIR/lib/bash/ftp_client.sh" ]; then
+    LIB_DIR="$SCRIPT_DIR/lib/bash"
+elif [ -f "/mnt/sysadmin/lib/bash/comunes.sh" ] && [ -f "/mnt/sysadmin/lib/bash/ftp_client.sh" ]; then
+    LIB_DIR="/mnt/sysadmin/lib/bash"
+elif [ -f "$SCRIPT_DIR/comunes.sh" ] && [ -f "$SCRIPT_DIR/ftp_client.sh" ]; then
+    LIB_DIR="$SCRIPT_DIR"
+else
+    LIB_DIR="$SCRIPT_DIR/../lib/bash" # Fallback por defecto
+fi
+
+# Cargar y verificar librerías
+for lib in comunes.sh http.sh ftp_client.sh ssl.sh; do
+    if [ -f "$LIB_DIR/$lib" ]; then
+        source "$LIB_DIR/$lib"
+    else
+        echo -e "\e[31m[ERROR] No se pudo encontrar la librería: $LIB_DIR/$lib\e[0m"
+        echo -e "\e[33m[HINT] Asegúrese de ejecutar el script con toda su estructura de carpetas o que las librerías comunes estén en el mismo directorio.\e[0m"
+        exit 1
+    fi
+done
 
 verificar_root
 
@@ -61,11 +79,12 @@ mostrar_resumen_servicios() {
 
     # 4. Tomcat
     if systemctl is-active --quiet tomcat; then
-        # Verificar puerto 8443
-        if ss -tlnp | grep -q "8443"; then
-            echo -e "  [ACTIVO] HTTP (Tomcat) -> HTTPS Seguro (Puerto 8443) \e[32m✔\e[0m"
+        local t_port; t_port=$(grep -oP '<Connector[^>]*port="\K[0-9]+' /opt/tomcat/conf/server.xml 2>/dev/null | head -1)
+        [[ -z "$t_port" ]] && t_port="8080"
+        if ss -tlnp 2>/dev/null | grep -q "8443" || grep -q 'scheme="https"' /opt/tomcat/conf/server.xml 2>/dev/null; then
+            echo -e "  [ACTIVO] HTTP (Tomcat) -> HTTPS Seguro (Puerto ${t_port}) \e[32m✔\e[0m"
         else
-            echo -e "  [ACTIVO] HTTP (Tomcat) -> Inseguro (Puerto 8080) \e[33m⚠\e[0m"
+            echo -e "  [ACTIVO] HTTP (Tomcat) -> Inseguro (Puerto ${t_port}) \e[33m⚠\e[0m"
         fi
     else
         echo -e "  [INACTIVO] HTTP (Tomcat) \e[31m✘\e[0m"
@@ -86,80 +105,101 @@ while true; do
 
     case "$opt" in
         1)
-            mostrar_banner
-            echo -e "\n=== FUENTE DE INSTALACIÓN HÍBRIDA ==="
-            echo "  1) WEB (vía Gestor de Paquetes Oficial)"
-            echo "  2) FTP (vía Repositorio Privado Práctica 5)"
-            echo "  3) Regresar"
-            read -p "Selecciona fuente (1-3): " fuente_opt
+            while true; do
+                mostrar_banner
+                echo -e "\n=== FUENTE DE INSTALACIÓN HÍBRIDA ==="
+                echo "  1) WEB (vía Gestor de Paquetes Oficial)"
+                echo "  2) FTP (vía Repositorio Privado Práctica 5)"
+                echo "  3) Regresar"
+                read -p "Selecciona fuente (1-3): " fuente_opt
 
-            if [ "$fuente_opt" -eq 1 ]; then
-                # Flujo normal de Tarea 6 (Instalación por Web)
-                echo -e "\nSeleccione el servicio a instalar:"
-                echo "  1) Apache"
-                echo "  2) Nginx"
-                echo "  3) Tomcat"
-                read -p "Opción (1-3): " svc_opt
-                
-                case "$svc_opt" in
-                    1)
-                        # Consultar versiones e instalar Apache
-                        versiones=$(consultar_versiones_apache)
-                        echo "$versiones"
-                        read -p "Selecciona versión: " ver_sel
-                        read -p "Puerto de escucha [80]: " port_sel
-                        port=${port_sel:-80}
-                        instalar_apache "$ver_sel" "$port"
-                        ;;
-                    2)
-                        versiones=$(consultar_versiones_nginx)
-                        echo "$versiones"
-                        read -p "Selecciona versión: " ver_sel
-                        read -p "Puerto de escucha [80]: " port_sel
-                        port=${port_sel:-80}
-                        instalar_nginx "$ver_sel" "$port"
-                        ;;
-                    3)
-                        versiones=$(consultar_versiones_tomcat)
-                        echo "$versiones"
-                        read -p "Selecciona versión: " ver_sel
-                        read -p "Puerto de escucha [8080]: " port_sel
-                        port=${port_sel:-8080}
-                        instalar_tomcat "$ver_sel" "$port"
-                        ;;
-                    *)
-                        echo "Opción inválida."
-                        ;;
-                esac
+                if [ "$fuente_opt" = "1" ]; then
+                    mostrar_banner
+                    echo -e "\nSeleccione el servicio a instalar:"
+                    echo "  1) Apache"
+                    echo "  2) Nginx"
+                    echo "  3) Tomcat"
+                    echo "  4) Regresar"
+                    read -p "Opción (1-4): " svc_opt
 
-            elif [ "$fuente_opt" -eq 2 ]; then
-                # Flujo de descarga FTP no interactiva y hash
-                binario=$(descargar_desde_ftp "Linux")
-                if [ -n "$binario" ] && [ -f "$binario" ]; then
-                    echo -e "\n[INFO] Iniciando instalación manual del binario descargado: $binario"
-                    
-                    # Decidir instalación por extensión
-                    if [[ "$binario" == *.deb ]]; then
-                        dpkg -i "$binario"
-                        apt-get install -f -y
-                    elif [[ "$binario" == *.tar.gz ]]; then
-                        # Si es tomcat o java, descomprimir en el destino sugerido
-                        if [[ "$binario" =~ tomcat ]]; then
-                            mkdir -p /opt/tomcat
-                            tar -xzf "$binario" -C /opt/tomcat --strip-components=1
-                            # Configurar usuario y permisos
-                            id -u tomcat &>/dev/null || useradd -r -m -U -d /opt/tomcat -s /bin/false tomcat
-                            chown -R tomcat:tomcat /opt/tomcat
-                            chmod +x /opt/tomcat/bin/*.sh
+                    case "$svc_opt" in
+                        1)
+                            mapfile -t vers < <(consultar_versiones_apache)
+                            ver_sel=$(seleccionar_version "Apache2" "${vers[@]}")
+                            read -p "Puerto de escucha [80]: " port_sel
+                            port=${port_sel:-80}
+                            instalar_apache "$ver_sel" "$port"
+                            break
+                            ;;
+                        2)
+                            mapfile -t vers < <(consultar_versiones_nginx)
+                            ver_sel=$(seleccionar_version "Nginx" "${vers[@]}")
+                            read -p "Puerto de escucha [80]: " port_sel
+                            port=${port_sel:-80}
+                            instalar_nginx "$ver_sel" "$port"
+                            break
+                            ;;
+                        3)
+                            mapfile -t vers < <(consultar_versiones_tomcat)
+                            ver_sel=$(seleccionar_version "Tomcat" "${vers[@]}")
+                            read -p "Puerto de escucha [8080]: " port_sel
+                            port=${port_sel:-8080}
+                            instalar_tomcat "$ver_sel" "$port"
+                            break
+                            ;;
+                        4)
+                            continue
+                            ;;
+                        *)
+                            echo "Opción inválida."
+                            sleep 1
+                            ;;
+                    esac
+
+                elif [ "$fuente_opt" = "2" ]; then
+                    # Flujo de descarga FTP no interactiva y validación de hash
+                    # descargar_desde_ftp envía logs a stderr; solo devuelve la ruta al stdout
+                    binario=$(descargar_desde_ftp "Linux")
+                    exit_ftp=$?
+
+                    if [ $exit_ftp -ne 0 ] || [ -z "$binario" ] || [ ! -f "$binario" ]; then
+                        echo -e "\e[31m[ERROR] No se pudo obtener el binario desde el servidor FTP.\e[0m"
+                        sleep 2
+                    else
+                        echo -e "\n[INFO] Iniciando instalación del binario: $binario"
+
+                        if [[ "$binario" == *.deb ]]; then
+                            dpkg -i "$binario"
+                            apt-get install -f -y
+                        elif [[ "$binario" == *.tar.gz ]]; then
+                            if [[ "$binario" =~ tomcat ]]; then
+                                mkdir -p /opt/tomcat
+                                tar -xzf "$binario" -C /opt/tomcat --strip-components=1
+                                id -u tomcat_svc &>/dev/null || useradd -r -m -U -d /opt/tomcat -s /bin/false tomcat_svc
+                                chown -R tomcat_svc:tomcat_svc /opt/tomcat
+                                chmod +x /opt/tomcat/bin/*.sh
+                                echo -e "\e[32m[OK] Tomcat extraído en /opt/tomcat.\e[0m"
+                                echo -e "\e[33m[INFO] Configura el servicio systemd o usa la opción SSL/TLS.\e[0m"
+                            else
+                                tar -xzf "$binario" -C /tmp/
+                                echo -e "\e[32m[OK] Archivo extraído en /tmp.\e[0m"
+                            fi
+                        elif [[ "$binario" == *.rpm ]]; then
+                            rpm -i "$binario"
                         else
-                            echo "[INFO] Archivo .tar.gz extraído a /tmp."
-                            tar -xzf "$binario" -C /tmp/
+                            echo -e "\e[33m[WARN] Extensión no reconocida. Archivo en: $binario\e[0m"
                         fi
+                        echo -e "\e[32m[OK] Instalación completada.\e[0m"
+                        sleep 2
                     fi
-                    echo -e "\e[32m[OK] Instalación manual completada exitosamente.\e[0m"
-                    sleep 2
+                    break
+                elif [ "$fuente_opt" = "3" ]; then
+                    break
+                else
+                    echo -e "\e[31mOpción inválida.\e[0m"
+                    sleep 1
                 fi
-            fi
+            done
             ;;
             
         2)

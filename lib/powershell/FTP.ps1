@@ -33,14 +33,14 @@ function Instalar-FTP-Windows {
     # Configurar permisos NTFS base
     # - general: IUSR (lectura), Users/Administrators (Full Control)
     # - groups: Administrators (Full Control)
-    icacls "C:\inetpub\ftproot\general" /grant:r "IUSR:(OI)(CI)R" /grant:r "Users:(OI)(CI)F" "Administrators:(OI)(CI)F" /inheritance:e | Out-Null
-    icacls "C:\inetpub\ftproot\groups\reprobados" /inheritance:r /grant:r "Administrators:(OI)(CI)F" | Out-Null
-    icacls "C:\inetpub\ftproot\groups\recursadores" /inheritance:r /grant:r "Administrators:(OI)(CI)F" | Out-Null
-    icacls "C:\inetpub\ftproot\users" /inheritance:r /grant:r "Administrators:(OI)(CI)F" | Out-Null
+    icacls "C:\inetpub\ftproot\general" /grant:r "*S-1-5-17:(OI)(CI)R" /grant:r "*S-1-5-32-545:(OI)(CI)F" /grant:r "*S-1-5-32-544:(OI)(CI)F" /inheritance:e | Out-Null
+    icacls "C:\inetpub\ftproot\groups\reprobados" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+    icacls "C:\inetpub\ftproot\groups\recursadores" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+    icacls "C:\inetpub\ftproot\users" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" | Out-Null
 
     # Permitir recorrido y lectura (este directorio solamente, sin herencia) a usuarios locales
-    icacls "C:\inetpub\ftproot" /grant "Users:R" | Out-Null
-    icacls "C:\inetpub\ftproot\LocalUser" /grant "Users:R" | Out-Null
+    icacls "C:\inetpub\ftproot" /grant "*S-1-5-32-545:(NP)R" | Out-Null
+    icacls "C:\inetpub\ftproot\LocalUser" /grant "*S-1-5-32-545:(NP)R" | Out-Null
 
     # 3. Configurar el sitio FTP en IIS
     Write-Host "[3/3] Configurando sitio FTP en IIS con aislamiento de usuarios..." -ForegroundColor Blue
@@ -167,7 +167,7 @@ function Crear-Usuario-FTP-Windows {
     Add-LocalGroupMember -Group $group -Member $username | Out-Null
 
     # Dar permisos NTFS a las carpetas del grupo
-    icacls "C:\inetpub\ftproot\groups\$group" /grant:r "${group}:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" /inheritance:r | Out-Null
+    icacls "C:\inetpub\ftproot\groups\$group" /grant:r "${group}:(OI)(CI)F" /grant:r "*S-1-5-32-544:(OI)(CI)F" /inheritance:r | Out-Null
 
     # PASO 1: Configurar directorios virtuales en IIS PRIMERO
     # (Remove-Item en rutas IIS:\ puede borrar archivos fisicos si se hace despues)
@@ -210,7 +210,7 @@ function Crear-Usuario-FTP-Windows {
     )
     foreach ($dir in $dirsToCreate) {
         cmd /c "if not exist `"$dir`" mkdir `"$dir`"" 2>$null | Out-Null
-        icacls $dir /grant "Everyone:(OI)(CI)F" 2>$null | Out-Null
+        icacls $dir /grant "*S-1-1-0:(OI)(CI)F" 2>$null | Out-Null
     }
 
     # PASO 3: Verificar que los directorios existen realmente

@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "PostgreSQL Tarea 11",
+      "Group": "SYS-ADMIN",
+      "Host": "db",
+      "Port": 5432,
+      "MaintenanceDB": "sysadmin_ms",
+      "Username": "ms_admin",
+      "SSLMode": "prefer",
+      "PassFile": "/pgpass"
+    }
+  }
+}

@@ -84,7 +84,7 @@ while ($true) {
     }
     elseif ($opt -eq "6") {
         Write-Host "`nHasta luego!" -ForegroundColor Green
-        Exit
+        break
     }
     else {
         Write-Host "Opcion invalida." -ForegroundColor Red

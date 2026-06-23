@@ -49,9 +49,14 @@ instalar_ftp_linux() {
     echo -e "${GREEN}[OK] Respaldo de /etc/vsftpd.conf creado.${NC}"
   fi
 
+  # Detectar IP del servidor para PASV
+  local SERVER_IP
+  SERVER_IP=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $4}' | cut -d/ -f1 | grep "192.168" | head -1)
+  [ -z "$SERVER_IP" ] && SERVER_IP=$(hostname -I | awk '{print $1}')
+
   # Escribir la nueva configuración de vsftpd
-  echo -e "${BLUE}[INFO] Escribiendo configuración /etc/vsftpd.conf...${NC}"
-  cat <<EOF > /etc/vsftpd.conf
+  echo -e "${BLUE}[INFO] Escribiendo configuración /etc/vsftpd.conf (IP PASV: ${SERVER_IP})...${NC}"
+  cat > /etc/vsftpd.conf <<VSFTPDEOF
 # Configuración del servidor FTP - vsftpd
 listen=NO
 listen_ipv6=YES
@@ -70,24 +75,42 @@ write_enable=YES
 local_umask=022
 
 # Aislamiento chroot para usuarios locales
+# IMPORTANTE: el directorio raíz del chroot (local_root) DEBE ser propiedad de
+# root y NO tener permisos de escritura para el usuario (chmod 755).
 chroot_local_user=YES
-allow_writeable_chroot=YES
 local_root=/srv/ftp/usuarios/\$USER
 user_sub_token=\$USER
+
+# ── MODO PASIVO (PASV) ──────────────────────────────────────────────────────
+# Requerido para clientes Windows (.NET FtpWebRequest) e interfaces gráficas.
+# Se fija un rango de puertos para que el firewall pueda abrirlos.
+pasv_enable=YES
+pasv_min_port=40000
+pasv_max_port=40100
+pasv_address=${SERVER_IP}
+# pasv_promiscuous=YES  <- solo si hay NAT doble o el cliente no puede alcanzar pasv_address
 
 # Logs y misceláneos
 dirmessage_enable=YES
 use_localtime=YES
 xferlog_enable=YES
+xferlog_file=/var/log/vsftpd.log
 connect_from_port_20=YES
 secure_chroot_dir=/var/run/vsftpd/empty
 pam_service_name=vsftpd
 utf8_filesystem=YES
-EOF
+VSFTPDEOF
 
   # Asegurar el inicio en el arranque
   systemctl enable vsftpd
   systemctl restart vsftpd
+
+  # Abrir puertos en UFW (FTP control + rango PASV para clientes Windows/.NET)
+  if command -v ufw &>/dev/null; then
+    ufw allow 21/tcp  comment "FTP-Control"          2>/dev/null
+    ufw allow 40000:40100/tcp comment "FTP-PASV-Data" 2>/dev/null
+    echo -e "${GREEN}[OK] Firewall: puertos 21 y 40000-40100/tcp abiertos.${NC}"
+  fi
 
   # Verificar servicio
   sleep 1
@@ -129,15 +152,24 @@ crear_usuario_ftp_linux() {
     echo -e "${GREEN}[OK] Usuario '$username' creado en el sistema.${NC}"
   fi
 
-  # Crear carpetas dentro de la raíz chroot del usuario
+  # Estructura del chroot:
+  #   /srv/ftp/usuarios/<user>/          <- raíz chroot: root:root 755 (vsftpd lo exige)
+  #   /srv/ftp/usuarios/<user>/privado/  <- dir privado con escritura para el usuario
+  #   /srv/ftp/usuarios/<user>/general/  <- bind mount de /srv/ftp/general
+  #   /srv/ftp/usuarios/<user>/<group>/  <- bind mount del grupo
   local user_home="/srv/ftp/usuarios/$username"
   mkdir -p "$user_home/general"
   mkdir -p "$user_home/$group"
-  mkdir -p "$user_home/$username"
+  mkdir -p "$user_home/privado"  # carpeta de escritura personal dentro del chroot
 
-  # Asignar permisos a la carpeta personal real
-  chown -R "$username:$group" "$user_home/$username"
-  chmod 700 "$user_home/$username"
+  # El directorio raíz del chroot DEBE ser de root:root y NO writable por el usuario
+  # (de lo contrario vsftpd rechaza el login con error 500)
+  chown root:root "$user_home"
+  chmod 755 "$user_home"
+
+  # La subcarpeta privada sí puede ser 700 del usuario
+  chown -R "$username:$group" "$user_home/privado"
+  chmod 700 "$user_home/privado"
 
   # Realizar los montajes bind
   # 1. Montaje de general
@@ -211,7 +243,7 @@ cambiar_grupo_usuario_linux() {
   fi
 
   # Ajustar permisos de la carpeta personal (para que pertenezca al nuevo grupo)
-  chown -R "$username:$new_group" "$user_home/$username"
+  chown -R "$username:$new_group" "$user_home/privado"
 
   echo -e "${GREEN}[OK] Montaje cambiado exitosamente de '$old_group' a '$new_group'.${NC}"
 }

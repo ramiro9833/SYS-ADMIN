@@ -2,13 +2,46 @@
 
 # Obtener directorio del script
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$libDir = [System.IO.Path]::GetFullPath((Join-Path $scriptDir "..\lib\powershell"))
+# Buscar directorio de librerias de forma dinamica
+$libDir = ""
+if (Test-Path (Join-Path $scriptDir "..\lib\powershell\Comunes.ps1") -and Test-Path (Join-Path $scriptDir "..\lib\powershell\FTPClient.ps1")) {
+    $libDir = [System.IO.Path]::GetFullPath((Join-Path $scriptDir "..\lib\powershell"))
+} elseif (Test-Path (Join-Path $scriptDir "lib\powershell\Comunes.ps1") -and Test-Path (Join-Path $scriptDir "lib\powershell\FTPClient.ps1")) {
+    $libDir = Join-Path $scriptDir "lib\powershell"
+} elseif (Test-Path (Join-Path $scriptDir "Comunes.ps1") -and Test-Path (Join-Path $scriptDir "FTPClient.ps1")) {
+    $libDir = $scriptDir
+} else {
+    # Buscar en unidades montadas (ej. Z:, 7:, etc.)
+    foreach ($d in (Get-PSDrive -PSProvider FileSystem | Sort-Object Name)) {
+        $candidate = Join-Path $d.Root "lib\powershell"
+        if (Test-Path "$candidate\Comunes.ps1" -and Test-Path "$candidate\FTPClient.ps1") {
+            $libDir = $candidate
+            break
+        }
+        $candidateSys = Join-Path $d.Root "SYS-ADMIN\lib\powershell"
+        if (Test-Path "$candidateSys\Comunes.ps1" -and Test-Path "$candidateSys\FTPClient.ps1") {
+            $libDir = $candidateSys
+            break
+        }
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($libDir)) {
+    $libDir = [System.IO.Path]::GetFullPath((Join-Path $scriptDir "..\lib\powershell")) # Fallback
+}
 
 # Cargar librerias
-. (Join-Path $libDir "Comunes.ps1")
-. (Join-Path $libDir "HTTP.ps1")
-. (Join-Path $libDir "FTPClient.ps1")
-. (Join-Path $libDir "SSL.ps1")
+$libs = @("Comunes.ps1", "HTTP.ps1", "FTPClient.ps1", "SSL.ps1")
+foreach ($lib in $libs) {
+    $path = Join-Path $libDir $lib
+    if (Test-Path $path) {
+        . $path
+    } else {
+        Write-Host "[ERROR] No se pudo encontrar la libreria: $path" -ForegroundColor Red
+        Write-Host "[HINT] Asegurese de ejecutar el script con toda su estructura de carpetas o que las librerias comunes esten en el mismo directorio." -ForegroundColor Yellow
+        Exit 1
+    }
+}
 
 Verificar-Admin
 
@@ -98,7 +131,7 @@ function Mostrar-Resumen-Servicios-Win {
 }
 
 # Bucle principal del orquestador
-while ($true) {
+:menuLoop while ($true) {
     Mostrar-Banner-Win
     Write-Host "  1) Instalar/Actualizar Servicio HTTP (Hibrido: Web/FTP)"
     Write-Host "  2) Configurar SSL/TLS Seguro en Servicio (HTTP o FTP)"
@@ -147,22 +180,41 @@ while ($true) {
             } elseif ($fuente_opt -eq "2") {
                 # Flujo de descarga FTP y validacion de hash
                 $binario = Descargar-Desde-FTP-Win -OSTarget "Windows"
-                if ($null -ne $binario -and (Test-Path $binario)) {
-                    Write-Host "`n[INFO] Iniciando instalacion manual/silenciosa del binario descargado: $binario" -ForegroundColor Yellow
-                    
+
+                if ($null -eq $binario -or -not (Test-Path $binario)) {
+                    Write-Host "[ERROR] No se pudo obtener el binario desde el servidor FTP." -ForegroundColor Red
+                    Start-Sleep -Seconds 2
+                } else {
+                    Write-Host "`n[INFO] Iniciando instalacion del binario: $binario" -ForegroundColor Yellow
+
                     if ($binario.EndsWith(".msi")) {
-                        Write-Host "[INFO] Ejecutando instalador MSI de forma silenciosa..." -ForegroundColor Yellow
-                        Start-Process msiexec.exe -ArgumentList "/i `"$binario`" /qn /norestart" -Wait
+                        Write-Host "[INFO] Ejecutando instalador MSI silencioso..." -ForegroundColor Yellow
+                        $proc = Start-Process msiexec.exe -ArgumentList "/i `"$binario`" /qn /norestart /l*v `"$env:TEMP\msi_install.log`"" -Wait -PassThru
+                        if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+                            Write-Host "[WARN] MSI termino con codigo: $($proc.ExitCode). Revisa $env:TEMP\msi_install.log" -ForegroundColor Yellow
+                        }
                     } elseif ($binario.EndsWith(".exe")) {
-                        Write-Host "[INFO] Ejecutando instalador EXE de forma silenciosa..." -ForegroundColor Yellow
+                        Write-Host "[INFO] Ejecutando instalador EXE silencioso..." -ForegroundColor Yellow
                         Start-Process $binario -ArgumentList "/S /v/qn" -Wait
                     } elseif ($binario.EndsWith(".zip")) {
                         Write-Host "[INFO] Descomprimiendo archivo ZIP..." -ForegroundColor Yellow
+                        # Detectar destino segun el nombre del archivo
                         $dest = "C:\tools"
+                        $nombreBin = [System.IO.Path]::GetFileNameWithoutExtension($binario).ToLower()
+                        if ($nombreBin -like "*nginx*") { $dest = "C:\nginx" }
+                        elseif ($nombreBin -like "*apache*") { $dest = "C:\Apache24" }
                         if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
                         Expand-Archive -Path $binario -DestinationPath $dest -Force
+                        Write-Host "[INFO] Extraido en: $dest" -ForegroundColor Cyan
+                    } elseif ($binario.EndsWith(".7z")) {
+                        Write-Host "[INFO] Descomprimiendo archivo 7z (requiere 7-Zip)..." -ForegroundColor Yellow
+                        $sevenZip = Get-Command 7z -ErrorAction SilentlyContinue
+                        if (-not $sevenZip) { choco install 7zip -y --no-progress 2>$null }
+                        & 7z x $binario -o"C:\tools" -y
+                    } else {
+                        Write-Host "[WARN] Extension no reconocida. Archivo descargado en: $binario" -ForegroundColor Yellow
                     }
-                    Write-Host "[OK] Instalacion completada exitosamente." -ForegroundColor Green
+                    Write-Host "[OK] Instalacion completada." -ForegroundColor Green
                     Start-Sleep -Seconds 2
                 }
             }
@@ -190,8 +242,12 @@ while ($true) {
             Mostrar-Resumen-Servicios-Win
         }
         "4" {
-            Write-Host "Saliendo del orquestador..." -ForegroundColor Yellow
-            break
+            Write-Host "`nSaliendo del orquestador. Hasta luego!" -ForegroundColor Green
+            break menuLoop
+        }
+        default {
+            Write-Host "[ERROR] Opcion invalida. Elige entre 1-4." -ForegroundColor Red
+            Start-Sleep -Seconds 1
         }
     }
 }

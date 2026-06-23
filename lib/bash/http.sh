@@ -54,11 +54,11 @@ leer_puerto() {
 # ─── Consultar versiones Apache ───────────────────────────────────────────────
 consultar_versiones_apache() {
   echo -e "${YELLOW}[INFO] Consultando versiones disponibles de Apache2...${NC}" >&2
-  apt-get update -qq 2>/dev/null
+  local VERS=()
   mapfile -t VERS < <(apt-cache madison apache2 2>/dev/null | awk '{print $3}' | sort -Vr | head -5)
   if [[ ${#VERS[@]} -eq 0 ]]; then
-    echo -e "${RED}[ERROR] No se pudieron obtener versiones de Apache2.${NC}" >&2
-    return 1
+    VERS=("2.4.62" "2.4.58" "2.4.52" "2.4.41")
+    echo -e "${YELLOW}[WARN] Sin acceso a repositorios. Usando fallback de versiones.${NC}" >&2
   fi
   printf '%s\n' "${VERS[@]}"
 }
@@ -66,11 +66,11 @@ consultar_versiones_apache() {
 # ─── Consultar versiones Nginx ────────────────────────────────────────────────
 consultar_versiones_nginx() {
   echo -e "${YELLOW}[INFO] Consultando versiones disponibles de Nginx...${NC}" >&2
-  apt-get update -qq 2>/dev/null
+  local VERS=()
   mapfile -t VERS < <(apt-cache madison nginx 2>/dev/null | awk '{print $3}' | sort -Vr | head -5)
   if [[ ${#VERS[@]} -eq 0 ]]; then
-    echo -e "${RED}[ERROR] No se pudieron obtener versiones de Nginx.${NC}" >&2
-    return 1
+    VERS=("1.26.2" "1.24.0" "1.22.1" "1.18.0")
+    echo -e "${YELLOW}[WARN] Sin acceso a repositorios. Usando fallback de versiones.${NC}" >&2
   fi
   printf '%s\n' "${VERS[@]}"
 }

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYS-ADMIN | Infraestructura en Contenedores</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="hero">
+        <img src="/assets/logo-sysadmin.svg" alt="Logo SYS-ADMIN personalizado" class="logo">
+        <h1>Tarea 10 — Virtualizacion Nativa</h1>
+        <p class="subtitle">Servidor web Alpine personalizado &middot; Nginx hardened</p>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h2>Estado de la Infraestructura</h2>
+            <ul id="services">
+                <li><span class="badge web">WEB</span> Nginx Alpine (puerto 8080)</li>
+                <li><span class="badge db">DB</span> PostgreSQL 16 Alpine</li>
+                <li><span class="badge ftp">FTP</span> vsftpd Alpine</li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Usuarios registrados</h2>
+            <p>Datos servidos desde PostgreSQL via API interna.</p>
+            <table id="users-table">
+                <thead>
+                    <tr><th>ID</th><th>Usuario</th><th>Departamento</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="3">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Archivos subidos (FTP &rarr; web_content)</h2>
+            <p>Los instaladores cargados via FTP aparecen en <a href="/uploads/">/uploads/</a></p>
+        </section>
+    </main>
+
+    <footer>
+        <p>Herman Geovany Ayala Zu&ntilde;iga &mdash; Administracion de Sistemas</p>
+        <p class="muted">server_tokens off &middot; usuario nginx (no root)</p>
+    </footer>
+</body>
+</html>

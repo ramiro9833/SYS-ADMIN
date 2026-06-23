@@ -1,0 +1,37 @@
+; Zona DNS de ejemplo — reprobados.com (Tarea 12)
+; Instalar en BIND9 o usar como referencia para configuracion manual
+;
+; Registros requeridos: MX, SPF, DKIM, DMARC
+
+$TTL    3600
+@       IN      SOA     ns1.reprobados.com. hostmaster.reprobados.com. (
+                        2026051101      ; Serial
+                        3600            ; Refresh
+                        600             ; Retry
+                        604800          ; Expire
+                        3600 )          ; Minimum TTL
+
+; ─── Servidores de nombres ───────────────────────────────────────────────────
+@       IN      NS      ns1.reprobados.com.
+ns1     IN      A       192.168.1.10
+
+; ─── Registro A del servidor de correo ───────────────────────────────────────
+mail    IN      A       192.168.1.10
+
+; ─── MX: intercambio de correo apunta al servidor mail ───────────────────────
+@       IN      MX      10 mail.reprobados.com.
+
+; ─── SPF: autoriza al servidor a enviar correo ───────────────────────────────
+@       IN      TXT     "v=spf1 mx a:mail.reprobados.com -all"
+
+; ─── DKIM: clave publica (reemplazar con salida de: setup.sh show-key) ───────
+; Ejecutar tras primer arranque:
+;   docker exec tarea12_mailserver cat /tmp/docker-mailserver/opendkim/keys/reprobados.com/mail.txt
+mail._domainkey IN TXT  "v=DKIM1; k=rsa; p=REEMPLAZAR_CON_CLAVE_PUBLICA_DKIM"
+
+; ─── DMARC: politica de autenticacion ────────────────────────────────────────
+_dmarc  IN      TXT     "v=DMARC1; p=quarantine; rua=mailto:postmaster@reprobados.com"
+
+; ─── Registros auxiliares ────────────────────────────────────────────────────
+@       IN      A       192.168.1.10
+www     IN      A       192.168.1.10

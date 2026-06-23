@@ -90,18 +90,35 @@ configurar_ssl_nginx() {
         generar_certificado_selfsigned
     fi
 
+    # Detectar el puerto HTTP actual de Nginx desde su configuración
+    local puerto_http; puerto_http=$(grep -E '^\s*listen\s+' /etc/nginx/sites-available/default 2>/dev/null | grep -oP '[0-9]+' | head -1)
+    [[ -z "$puerto_http" ]] && puerto_http="80"
+
+    local puerto_https
+    if [ "$puerto_http" = "80" ]; then
+        puerto_https="443"
+    else
+        puerto_https=$((puerto_http + 1))
+    fi
+
+    # Evitar conflicto si Apache2 ya está usando el puerto 443
+    if [ "$puerto_https" = "443" ] && systemctl is-active --quiet apache2 2>/dev/null; then
+        echo -e "\e[33m[WARN] Apache2 está activo y posiblemente usando el puerto 443. Configurando Nginx SSL en el puerto 8443 para evitar conflicto.\e[0m"
+        puerto_https="8443"
+    fi
+
     # Configuración de sitio default con SSL y redirección
     cat <<EOF > /etc/nginx/sites-available/default
 server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
+    listen ${puerto_http} default_server;
+    listen [::]:${puerto_http} default_server;
     server_name $DOMINIO;
-    return 301 https://\$host\$request_uri;
+    return 301 https://\$host:${puerto_https}\$request_uri;
 }
 
 server {
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
+    listen ${puerto_https} ssl default_server;
+    listen [::]:${puerto_https} ssl default_server;
     server_name $DOMINIO;
 
     ssl_certificate $CERT_PATH;
@@ -125,8 +142,13 @@ server {
 }
 EOF
 
+    # Registrar el puerto SSL de Nginx en el firewall si es necesario
+    if [ -f "$LIB_DIR/http.sh" ]; then
+        configurar_firewall_linux "$puerto_https" "Nginx SSL"
+    fi
+
     systemctl restart nginx
-    echo -e "\e[32m[OK] Nginx configurado con SSL y Redirección HTTPS activa.\e[0m"
+    echo -e "\e[32m[OK] Nginx configurado con SSL en puerto ${puerto_https} y Redirección HTTPS activa.\e[0m"
 }
 
 # Configurar SSL para Tomcat Linux

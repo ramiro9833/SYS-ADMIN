@@ -1,0 +1,116 @@
+# tarea10/docker-compose.yml
+# Orquestacion Tarea 10: Web + PostgreSQL + FTP
+# Red: infra_red (172.20.0.0/16) | Volumenes: db_data, web_content
+
+name: sysadmin-tarea10
+
+networks:
+  infra_red:
+    name: infra_red
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+
+volumes:
+  db_data:
+    name: db_data
+  web_content:
+    name: web_content
+
+services:
+  # ─── Servidor Web (Nginx Alpine personalizado) ─────────────────────────────
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: sysadmin_web
+    hostname: web
+    networks:
+      infra_red:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "8080:8080"
+    volumes:
+      - web_content:/usr/share/nginx/html/uploads
+    mem_limit: 512m
+    cpus: 0.50
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ─── Base de datos PostgreSQL ──────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: sysadmin_db
+    hostname: db
+    networks:
+      infra_red:
+        ipv4_address: 172.20.0.20
+    environment:
+      POSTGRES_DB: sysadmin_db
+      POSTGRES_USER: sysadmin
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-DbSysAdmin@2026}"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./backups:/backups
+    mem_limit: 512m
+    cpus: 0.50
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sysadmin -d sysadmin_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ─── Respaldo automatizado de PostgreSQL ───────────────────────────────────
+  db_backup:
+    image: postgres:16-alpine
+    container_name: sysadmin_db_backup
+    hostname: db_backup
+    networks:
+      infra_red:
+        ipv4_address: 172.20.0.21
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: sysadmin
+      PGPASSWORD: "${DB_PASSWORD:-DbSysAdmin@2026}"
+      PGDATABASE: sysadmin_db
+      BACKUP_INTERVAL: "${BACKUP_INTERVAL:-3600}"
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup_loop.sh:/backup_loop.sh:ro
+    entrypoint: ["/bin/sh", "/backup_loop.sh"]
+    mem_limit: 256m
+    cpus: 0.25
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ─── Servidor FTP (vsftpd Alpine) ──────────────────────────────────────────
+  ftp:
+    build:
+      context: ./ftp
+      dockerfile: Dockerfile
+    container_name: sysadmin_ftp
+    hostname: ftp
+    networks:
+      infra_red:
+        ipv4_address: 172.20.0.30
+    ports:
+      - "21:21"
+      - "30000-30009:30000-30009"
+    environment:
+      FTP_PASS: "${FTP_PASS:-FtpUpload@1234}"
+    volumes:
+      - web_content:/var/ftp/uploads
+    mem_limit: 512m
+    cpus: 0.50
+    restart: unless-stopped
